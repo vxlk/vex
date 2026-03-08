@@ -1,17 +1,19 @@
 """Batch decode across multiple container formats and inspect per-file metrics."""
 
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'python'))
+import os
+import sys
 
-from vex import batch_decode, LevelConfig
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
 
-FIXTURES = os.path.join(os.path.dirname(__file__), '..', 'fixtures')
+from vex import LevelConfig, batch_decode
+
+FIXTURES = os.path.join(os.path.dirname(__file__), "..", "fixtures")
 
 # Collect all video files across fixture directories
 videos = []
 for root, dirs, files in os.walk(FIXTURES):
     for f in sorted(files):
-        if f.endswith(('.mp4', '.mkv', '.avi', '.ts', '.flv')):
+        if f.endswith((".mp4", ".mkv", ".avi", ".ts", ".flv")):
             videos.append(os.path.join(root, f))
 
 print(f"Found {len(videos)} video files across fixtures/")
@@ -36,12 +38,12 @@ STRATEGY_NAMES = {
 print(f"{'File':<45} {'Strategy':<18} {'Keyframes':>9} {'Size':>10}")
 print("-" * 85)
 
-for stat in sorted(metrics.file_stats, key=lambda s: s['file_index']):
-    idx = stat['file_index']
+for stat in sorted(metrics.file_stats, key=lambda s: s["file_index"]):
+    idx = stat["file_index"]
     path = os.path.relpath(videos[idx], FIXTURES)
-    strategy = STRATEGY_NAMES.get(stat['index_strategy'], '?')
-    kf = stat['keyframe_count']
-    size = stat['file_size_bytes']
+    strategy = STRATEGY_NAMES.get(stat["index_strategy"], "?")
+    kf = stat["keyframe_count"]
+    size = stat["file_size_bytes"]
     print(f"{path:<45} {strategy:<18} {kf:>9} {size:>9,}")
 
 print("-" * 85)

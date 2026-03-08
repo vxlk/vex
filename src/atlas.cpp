@@ -9,15 +9,14 @@ namespace vex {
 // ── Constructor ─────────────────────────────────────────────────────────────
 
 AtlasBuilder::AtlasBuilder(int thumb_w, int thumb_h, int columns, int file_count, int quality)
-    : thumb_w_(thumb_w)
-    , thumb_h_(thumb_h)
-    , columns_(columns)
-    , rows_((file_count + columns - 1) / columns)
-    , file_count_(file_count)
-    , quality_(quality)
-    , grid_pixel_w_(thumb_w * columns)
-    , grid_pixel_h_(thumb_h * rows_)
-{}
+    : thumb_w_(thumb_w),
+      thumb_h_(thumb_h),
+      columns_(columns),
+      rows_((file_count + columns - 1) / columns),
+      file_count_(file_count),
+      quality_(quality),
+      grid_pixel_w_(thumb_w * columns),
+      grid_pixel_h_(thumb_h * rows_) {}
 
 // ── ensure_time_step ────────────────────────────────────────────────────────
 
@@ -36,7 +35,7 @@ void AtlasBuilder::ensure_time_step(int time_step) {
 // ── init_time_step ──────────────────────────────────────────────────────────
 
 void AtlasBuilder::init_time_step(TimeStep& ts) {
-    size_t y_size  = static_cast<size_t>(grid_pixel_w_) * grid_pixel_h_;
+    size_t y_size = static_cast<size_t>(grid_pixel_w_) * grid_pixel_h_;
     size_t uv_size = static_cast<size_t>(grid_pixel_w_ / 2) * (grid_pixel_h_ / 2);
 
     ts.y_plane.resize(y_size);
@@ -60,14 +59,12 @@ int AtlasBuilder::num_time_steps() const {
 
 // ── add_thumbnail ───────────────────────────────────────────────────────────
 
-void AtlasBuilder::add_thumbnail(int time_step, int file_index,
-                                 const uint8_t* y, const uint8_t* u, const uint8_t* v,
-                                 int y_stride, int uv_stride)
-{
+void AtlasBuilder::add_thumbnail(int time_step, int file_index, const uint8_t* y, const uint8_t* u,
+                                 const uint8_t* v, int y_stride, int uv_stride) {
     // Grid position
     int col = file_index % columns_;
     int row = file_index / columns_;
-    int x   = col * thumb_w_;
+    int x = col * thumb_w_;
     int y_pos = row * thumb_h_;
 
     // Access the time step (caller must have called ensure_time_step first)
@@ -88,14 +85,16 @@ void AtlasBuilder::add_thumbnail(int time_step, int file_index,
     int half_y_pos = y_pos / 2;
 
     for (int r = 0; r < half_h; ++r) {
-        uint8_t* dst = ts.u_plane.data() + static_cast<size_t>(half_y_pos + r) * half_grid_w + half_x;
+        uint8_t* dst =
+            ts.u_plane.data() + static_cast<size_t>(half_y_pos + r) * half_grid_w + half_x;
         const uint8_t* src = u + static_cast<size_t>(r) * uv_stride;
         std::memcpy(dst, src, static_cast<size_t>(half_w));
     }
 
     // Blit V plane
     for (int r = 0; r < half_h; ++r) {
-        uint8_t* dst = ts.v_plane.data() + static_cast<size_t>(half_y_pos + r) * half_grid_w + half_x;
+        uint8_t* dst =
+            ts.v_plane.data() + static_cast<size_t>(half_y_pos + r) * half_grid_w + half_x;
         const uint8_t* src = v + static_cast<size_t>(r) * uv_stride;
         std::memcpy(dst, src, static_cast<size_t>(half_w));
     }
@@ -107,10 +106,10 @@ void AtlasBuilder::add_thumbnail(int time_step, int file_index,
 
 SpriteAtlasResult AtlasBuilder::compose_all() {
     SpriteAtlasResult result{};
-    result.grid_w     = columns_;
-    result.grid_h     = rows_;
-    result.thumb_w    = thumb_w_;
-    result.thumb_h    = thumb_h_;
+    result.grid_w = columns_;
+    result.grid_h = rows_;
+    result.thumb_w = thumb_w_;
+    result.thumb_h = thumb_h_;
     result.file_count = file_count_;
 
     JpegEncoder encoder;
@@ -130,11 +129,9 @@ SpriteAtlasResult AtlasBuilder::compose_all() {
         size_t old_size = result.blob.size();
         result.blob.resize(old_size + max_size);
 
-        size_t jpeg_size = encoder.encode(
-            ts.y_plane.data(), ts.u_plane.data(), ts.v_plane.data(),
-            grid_pixel_w_, half_grid_w,
-            grid_pixel_w_, grid_pixel_h_, quality_,
-            result.blob.data() + old_size, max_size);
+        size_t jpeg_size = encoder.encode(ts.y_plane.data(), ts.u_plane.data(), ts.v_plane.data(),
+                                          grid_pixel_w_, half_grid_w, grid_pixel_w_, grid_pixel_h_,
+                                          quality_, result.blob.data() + old_size, max_size);
 
         if (jpeg_size == 0) {
             // Encoding failed; revert the blob growth
@@ -151,4 +148,4 @@ SpriteAtlasResult AtlasBuilder::compose_all() {
     return result;
 }
 
-} // namespace vex
+}  // namespace vex

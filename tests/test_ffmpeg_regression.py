@@ -6,14 +6,15 @@ every container format in the fixtures. Verifies:
   2. Pixel content is near-identical (high PSNR).
   3. vex is faster than invoking FFmpeg.
 """
+
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import time
-import subprocess
-from pathlib import Path
 from io import BytesIO
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -28,6 +29,7 @@ from vex import NATIVE, LevelConfig, batch_decode
 
 try:
     from PIL import Image
+
     HAS_PIL = True
 except ImportError:
     HAS_PIL = False
@@ -41,6 +43,7 @@ needs_pil = pytest.mark.skipif(not HAS_PIL, reason="Pillow not installed")
 HAS_NATIVE = False
 try:
     from vex import _load_native
+
     _load_native()
     HAS_NATIVE = True
 except (ImportError, Exception):
@@ -56,8 +59,8 @@ needs_native = pytest.mark.skipif(
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES_DIR = PROJECT_ROOT / "fixtures"
-FORMATS_DIR  = FIXTURES_DIR / "formats"
-FFMPEG_BIN   = PROJECT_ROOT / "deps" / "ffmpeg" / "bin" / "ffmpeg.exe"
+FORMATS_DIR = FIXTURES_DIR / "formats"
+FFMPEG_BIN = PROJECT_ROOT / "deps" / "ffmpeg" / "bin" / "ffmpeg.exe"
 
 has_ffmpeg = FFMPEG_BIN.is_file()
 needs_ffmpeg = pytest.mark.skipif(not has_ffmpeg, reason="ffmpeg.exe not found")
@@ -84,8 +87,10 @@ def _fixture_path(filename: str) -> str:
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _ffmpeg_decode_to_jpegs(input_path: str, out_dir: Path,
-                            width: int = 0, height: int = 0) -> list[Path]:
+
+def _ffmpeg_decode_to_jpegs(
+    input_path: str, out_dir: Path, width: int = 0, height: int = 0
+) -> list[Path]:
     """Run FFmpeg to decode a video into individual JPEG files.
 
     Returns the list of output JPEG paths, sorted by frame index.
@@ -93,23 +98,29 @@ def _ffmpeg_decode_to_jpegs(input_path: str, out_dir: Path,
     out_pattern = str(out_dir / "frame_%06d.jpg")
     cmd = [
         str(FFMPEG_BIN),
-        "-hide_banner", "-loglevel", "error",
-        "-i", input_path,
-        "-fps_mode", "passthrough",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        input_path,
+        "-fps_mode",
+        "passthrough",
     ]
     if width > 0 and height > 0:
         cmd += ["-vf", f"scale={width}:{height}:flags=bilinear"]
     cmd += [
-        "-q:v", "2",           # highest quality MJPEG
-        "-f", "image2",
+        "-q:v",
+        "2",  # highest quality MJPEG
+        "-f",
+        "image2",
         out_pattern,
     ]
-    subprocess.run(cmd, check=True, timeout=30,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    subprocess.run(
+        cmd, check=True, timeout=30, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
+    )
 
     jpegs = sorted(out_dir.glob("frame_*.jpg"))
     return jpegs
-
 
 
 def _decode_jpeg_to_array(jpeg_bytes: bytes) -> np.ndarray:
@@ -123,12 +134,13 @@ def _psnr(a: np.ndarray, b: np.ndarray) -> float:
     mse = np.mean((a - b) ** 2)
     if mse == 0:
         return float("inf")
-    return float(10.0 * np.log10(255.0 ** 2 / mse))
+    return float(10.0 * np.log10(255.0**2 / mse))
 
 
 # ---------------------------------------------------------------------------
 # Tests: correctness (per-fixture, parametrized)
 # ---------------------------------------------------------------------------
+
 
 @needs_native
 @needs_ffmpeg
@@ -244,8 +256,7 @@ class TestFFmpegRegression:
             pytest.skip("no frames decoded")
 
         # FFmpeg: same scale and quality
-        ffmpeg_jpegs = _ffmpeg_decode_to_jpegs(path, tmp_path,
-                                                width=192, height=192)
+        ffmpeg_jpegs = _ffmpeg_decode_to_jpegs(path, tmp_path, width=192, height=192)
         n_ffmpeg = len(ffmpeg_jpegs)
         n_common = min(n_vex, n_ffmpeg)
         if n_common == 0:
@@ -280,6 +291,7 @@ class TestFFmpegRegression:
 # ---------------------------------------------------------------------------
 # Test: speed comparison
 # ---------------------------------------------------------------------------
+
 
 @needs_native
 @needs_ffmpeg
@@ -320,6 +332,5 @@ class TestFFmpegSpeed:
         print(f"  speedup: {speedup:.1f}x")
 
         assert vex_time < ffmpeg_time, (
-            f"vex ({vex_time:.2f}s) was not faster than "
-            f"FFmpeg ({ffmpeg_time:.2f}s)"
+            f"vex ({vex_time:.2f}s) was not faster than FFmpeg ({ffmpeg_time:.2f}s)"
         )

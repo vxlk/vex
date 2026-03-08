@@ -31,6 +31,9 @@ setup(
         "bench": [
             "matplotlib",
         ],
+        "dev": [
+            "ruff",
+        ],
     },
     package_data={
         "vex": ["*.pyd", "*.so", "*.dll"],

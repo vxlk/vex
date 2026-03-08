@@ -17,4 +17,4 @@ namespace vex {
 // Returned keyframes are sorted by byte offset ascending for sequential I/O.
 KeyframeIndex scan_keyframes(AVFormatContext* fmt_ctx, int stream_index);
 
-} // namespace vex
+}  // namespace vex

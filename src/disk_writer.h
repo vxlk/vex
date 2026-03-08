@@ -21,15 +21,14 @@ public:
     bool write_frame(const uint8_t* data, size_t size);
 
     // Flush offset table + header, close file, return DiskResult.
-    DiskResult finalize(const std::vector<std::array<int64_t,3>>& metadata,
-                        const LevelConfig& config,
-                        uint64_t source_hash);
+    DiskResult finalize(const std::vector<std::array<int64_t, 3>>& metadata,
+                        const LevelConfig& config, uint64_t source_hash);
 
 private:
-    FILE*              file_        = nullptr;
-    std::string        path_;
+    FILE* file_ = nullptr;
+    std::string path_;
     std::vector<int64_t> offsets_;
-    int64_t            current_pos_ = 0;
+    int64_t current_pos_ = 0;
 };
 
-} // namespace vex
+}  // namespace vex

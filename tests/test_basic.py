@@ -4,6 +4,7 @@ Tests are split into two groups:
   - Pure-Python tests that run without the C++ extension module.
   - Integration tests that require _vex_core to be built (auto-skipped otherwise).
 """
+
 from __future__ import annotations
 
 import os
@@ -16,14 +17,19 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
 
 from vex import (
-    NATIVE, LevelConfig, BatchResult, CachedLevel,
-    batch_decode, batch_decode_async,
+    NATIVE,
+    BatchResult,
+    CachedLevel,
+    LevelConfig,
+    batch_decode,
+    batch_decode_async,
 )
 
 # Check whether the native module is available
 HAS_NATIVE = False
 try:
     from vex import _load_native
+
     _load_native()
     HAS_NATIVE = True
 except (ImportError, Exception):
@@ -37,6 +43,7 @@ FIXTURES_DIR = PROJECT_ROOT / "fixtures"
 # ---------------------------------------------------------------------------
 # Pure-Python tests (no native module required)
 # ---------------------------------------------------------------------------
+
 
 class TestLevelConfig:
     """Tests for LevelConfig dataclass."""
@@ -104,6 +111,7 @@ class TestOutputFormatValidation:
 
     def test_format_used_in_config_conversion(self):
         from vex import _VALID_OUTPUTS
+
         assert "jpeg_stream" in _VALID_OUTPUTS
         assert "sprite_atlas" in _VALID_OUTPUTS
 
@@ -113,6 +121,7 @@ class TestDecodeMetrics:
 
     def test_default_metrics(self):
         from vex import DecodeMetrics
+
         m = DecodeMetrics()
         assert m.total_wall_us == 0
         assert m.decode_fps == 0.0
@@ -120,9 +129,10 @@ class TestDecodeMetrics:
 
     def test_metrics_fps(self):
         from vex import DecodeMetrics
+
         m = DecodeMetrics(
             total_wall_us=1_000_000,  # 1 second
-            decode_us=500_000,        # 0.5 seconds
+            decode_us=500_000,  # 0.5 seconds
             keyframes_decoded=100,
         )
         assert m.pipeline_fps == pytest.approx(100.0)
@@ -132,6 +142,7 @@ class TestDecodeMetrics:
 # ---------------------------------------------------------------------------
 # Integration tests (require native module + fixtures)
 # ---------------------------------------------------------------------------
+
 
 def _fixture_path(*parts: str) -> str:
     """Return absolute path to a fixture file."""
@@ -183,6 +194,7 @@ class TestKeyframeDecode:
         assert len(results) == 1
 
         from vex import JpegStreamResult
+
         assert isinstance(results[0], JpegStreamResult)
         assert len(results[0].blobs) == 1
         assert len(results[0].blobs[0]) > 0
@@ -207,6 +219,7 @@ class TestSequentialDecode:
         assert len(results) == 1
 
         from vex import JpegStreamResult
+
         assert isinstance(results[0], JpegStreamResult)
         assert len(results[0].blobs) == 1
         assert len(results[0].blobs[0]) > 0
@@ -226,8 +239,12 @@ class TestSequentialDecode:
         """frame_skip=2 should produce roughly half the frames of skip=1."""
         path = _fixture_path("formats", filename)
         levels = [LevelConfig(width=192, height=192, quality=85)]
-        _, all_metrics = batch_decode([path], levels=levels, keyframes_only=False, frame_skip=1)
-        _, skip_metrics = batch_decode([path], levels=levels, keyframes_only=False, frame_skip=2)
+        _, all_metrics = batch_decode(
+            [path], levels=levels, keyframes_only=False, frame_skip=1
+        )
+        _, skip_metrics = batch_decode(
+            [path], levels=levels, keyframes_only=False, frame_skip=2
+        )
 
         assert skip_metrics.keyframes_decoded <= all_metrics.keyframes_decoded
         assert skip_metrics.keyframes_decoded > 0
@@ -251,6 +268,7 @@ class TestBatchDecode:
 
         # Default level produces JpegStreamResult
         from vex import JpegStreamResult
+
         assert isinstance(result, JpegStreamResult)
 
         # Should have decoded at least one keyframe
@@ -277,6 +295,7 @@ class TestBatchDecode:
         # Both levels should have produced output
         for result in results:
             from vex import JpegStreamResult
+
             assert isinstance(result, JpegStreamResult)
             assert len(result.blobs) == 1
             assert len(result.blobs[0]) > 0
@@ -289,14 +308,19 @@ class TestBatchResult:
 
     def test_returns_batch_result(self):
         path = _fixture_path("formats", "h264_mp4.mp4")
-        result = batch_decode([path], levels=[LevelConfig(width=192, height=192, quality=85)])
+        result = batch_decode(
+            [path], levels=[LevelConfig(width=192, height=192, quality=85)]
+        )
         assert isinstance(result, BatchResult)
         assert result.metrics.keyframes_decoded > 0
 
     def test_typed_jpeg_stream_accessor(self):
         path = _fixture_path("formats", "h264_mp4.mp4")
-        result = batch_decode([path], levels=[LevelConfig(width=192, height=192, quality=85)])
+        result = batch_decode(
+            [path], levels=[LevelConfig(width=192, height=192, quality=85)]
+        )
         from vex import JpegStreamResult
+
         stream = result.jpeg_stream()  # level 0 (default)
         assert isinstance(stream, JpegStreamResult)
         assert len(stream.blobs) == 1
@@ -306,10 +330,12 @@ class TestBatchResult:
         path = _fixture_path("formats", "h264_mp4.mp4")
         result = batch_decode(
             [path],
-            levels=[LevelConfig(width=48, height=48, quality=30,
-                                output="sprite_atlas")],
+            levels=[
+                LevelConfig(width=48, height=48, quality=30, output="sprite_atlas")
+            ],
         )
         from vex import SpriteAtlasResult
+
         atlas = result.sprite_atlas()
         assert isinstance(atlas, SpriteAtlasResult)
         assert atlas.thumb_w == 48
@@ -317,7 +343,9 @@ class TestBatchResult:
 
     def test_typed_accessor_wrong_type_raises(self):
         path = _fixture_path("formats", "h264_mp4.mp4")
-        result = batch_decode([path], levels=[LevelConfig(width=192, height=192, quality=85)])
+        result = batch_decode(
+            [path], levels=[LevelConfig(width=192, height=192, quality=85)]
+        )
         with pytest.raises(TypeError, match="not SpriteAtlasResult"):
             result.sprite_atlas(0)
         with pytest.raises(TypeError, match="not DiskResult"):
@@ -325,16 +353,21 @@ class TestBatchResult:
 
     def test_typed_accessor_index_error(self):
         path = _fixture_path("formats", "h264_mp4.mp4")
-        result = batch_decode([path], levels=[LevelConfig(width=192, height=192, quality=85)])
+        result = batch_decode(
+            [path], levels=[LevelConfig(width=192, height=192, quality=85)]
+        )
         with pytest.raises(IndexError):
             result.jpeg_stream(99)
 
     def test_tuple_unpacking_still_works(self):
         path = _fixture_path("formats", "h264_mp4.mp4")
-        results, metrics = batch_decode([path], levels=[LevelConfig(width=192, height=192, quality=85)])
+        results, metrics = batch_decode(
+            [path], levels=[LevelConfig(width=192, height=192, quality=85)]
+        )
         assert isinstance(results, list)
         assert metrics.keyframes_decoded > 0
         from vex import JpegStreamResult
+
         assert isinstance(results[0], JpegStreamResult)
 
     def test_index_access(self):
@@ -347,6 +380,7 @@ class TestBatchResult:
             ],
         )
         from vex import JpegStreamResult
+
         assert isinstance(result[0], JpegStreamResult)
         assert isinstance(result[1], JpegStreamResult)
 
@@ -355,12 +389,12 @@ class TestBatchResult:
         result = batch_decode(
             [path],
             levels=[
-                LevelConfig(width=48, height=48, quality=30,
-                            output="sprite_atlas"),
+                LevelConfig(width=48, height=48, quality=30, output="sprite_atlas"),
                 LevelConfig(width=192, height=192, quality=85),
             ],
         )
-        from vex import SpriteAtlasResult, JpegStreamResult
+        from vex import JpegStreamResult, SpriteAtlasResult
+
         atlas = result.sprite_atlas(0)
         stream = result.jpeg_stream(1)
         assert isinstance(atlas, SpriteAtlasResult)
@@ -382,6 +416,7 @@ class TestNativeResolution:
         assert metrics.keyframes_decoded > 0
         result = results[0]
         from vex import JpegStreamResult
+
         assert isinstance(result, JpegStreamResult)
 
         # Verify the JPEG is actually 640x480 by reading the SOF0 marker
@@ -434,8 +469,9 @@ class TestNativeResolution:
         with pytest.raises(ValueError, match="sprite_atlas requires explicit"):
             batch_decode(
                 [_fixture_path("formats", "h264_mp4.mp4")],
-                levels=[LevelConfig(width=NATIVE, height=NATIVE,
-                                    output="sprite_atlas")],
+                levels=[
+                    LevelConfig(width=NATIVE, height=NATIVE, output="sprite_atlas")
+                ],
             )
 
 
@@ -472,7 +508,9 @@ class TestBatchDecodeAsync:
 
     def test_batch_decode_async(self):
         path = _fixture_path("formats", "h264_mp4.mp4")
-        handle = batch_decode_async([path], levels=[LevelConfig(width=192, height=192, quality=85)])
+        handle = batch_decode_async(
+            [path], levels=[LevelConfig(width=192, height=192, quality=85)]
+        )
 
         # Handle should exist and eventually complete
         assert handle is not None

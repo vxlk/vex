@@ -7,6 +7,7 @@ Usage:
 All generated files are short (1-5 seconds) and small resolution (320x240) to keep the
 repository and test times compact.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -41,7 +42,10 @@ def find_ffmpeg(hint: Optional[str] = None) -> str:
         return found
 
     print("ERROR: ffmpeg not found.", file=sys.stderr)
-    print("  Provide --ffmpeg <path> or place ffmpeg.exe in deps/ffmpeg/bin/", file=sys.stderr)
+    print(
+        "  Provide --ffmpeg <path> or place ffmpeg.exe in deps/ffmpeg/bin/",
+        file=sys.stderr,
+    )
     sys.exit(1)
 
 
@@ -62,7 +66,7 @@ def run_ffmpeg(ffmpeg: str, args: List[str], label: str) -> bool:
             return False
         return True
     except subprocess.TimeoutExpired:
-        print(f"    TIMEOUT", file=sys.stderr)
+        print("    TIMEOUT", file=sys.stderr)
         return False
     except FileNotFoundError:
         print(f"    ffmpeg not found: {ffmpeg}", file=sys.stderr)
@@ -72,6 +76,7 @@ def run_ffmpeg(ffmpeg: str, args: List[str], label: str) -> bool:
 # ---------------------------------------------------------------------------
 # Fixture definitions
 # ---------------------------------------------------------------------------
+
 
 def formats_fixtures(ffmpeg: str, out_dir: Path, force: bool) -> int:
     """Generate format/container test files.
@@ -92,92 +97,70 @@ def formats_fixtures(ffmpeg: str, out_dir: Path, force: bool) -> int:
 
     fixtures = [
         # ── MP4 (MPEG-4 Part 14) ──
-        ("h264_mp4.mp4",       f"{si} -c:v libx264 {bv}"),
-        ("h265_mp4.mp4",       f"{si} -c:v libx265 {bv}"),
-        ("av1_mp4.mp4",        f"{si} -c:v libsvtav1 -preset 8 -pix_fmt yuv420p"),
-
+        ("h264_mp4.mp4", f"{si} -c:v libx264 {bv}"),
+        ("h265_mp4.mp4", f"{si} -c:v libx265 {bv}"),
+        ("av1_mp4.mp4", f"{si} -c:v libsvtav1 -preset 8 -pix_fmt yuv420p"),
         # ── Matroska (MKV) ──
-        ("h264_mkv.mkv",       f"{si} -c:v libx264 {bv}"),
-        ("h265_mkv.mkv",       f"{si} -c:v libx265 {bv}"),
-        ("vp9_mkv.mkv",        f"{si} -c:v libvpx-vp9 -b:v 1M {bv}"),
-        ("av1_mkv.mkv",        f"{si} -c:v libsvtav1 -preset 8 -pix_fmt yuv420p"),
-
+        ("h264_mkv.mkv", f"{si} -c:v libx264 {bv}"),
+        ("h265_mkv.mkv", f"{si} -c:v libx265 {bv}"),
+        ("vp9_mkv.mkv", f"{si} -c:v libvpx-vp9 -b:v 1M {bv}"),
+        ("av1_mkv.mkv", f"{si} -c:v libsvtav1 -preset 8 -pix_fmt yuv420p"),
         # ── AVI ──
-        ("h264_avi.avi",       f"{si} -c:v libx264 {bv}"),
-        ("mpeg4_avi.avi",      f"{si} -c:v mpeg4 -b:v 2M {bv}"),
-        ("mjpeg_avi.avi",      f"{si} -c:v mjpeg -q:v 3 -pix_fmt yuvj420p"),
-        ("msmpeg4_avi.avi",    f"{si} -c:v msmpeg4v2 -b:v 2M -pix_fmt yuv420p"),
-
+        ("h264_avi.avi", f"{si} -c:v libx264 {bv}"),
+        ("mpeg4_avi.avi", f"{si} -c:v mpeg4 -b:v 2M {bv}"),
+        ("mjpeg_avi.avi", f"{si} -c:v mjpeg -q:v 3 -pix_fmt yuvj420p"),
+        ("msmpeg4_avi.avi", f"{si} -c:v msmpeg4v2 -b:v 2M -pix_fmt yuv420p"),
         # ── MPEG-TS (Transport Stream) ──
-        ("h264_ts.ts",         f"{si} -c:v libx264 {bv}"),
-        ("mpeg2_ts.ts",        f"{si} -c:v mpeg2video -b:v 2M {bv}"),
-
+        ("h264_ts.ts", f"{si} -c:v libx264 {bv}"),
+        ("mpeg2_ts.ts", f"{si} -c:v mpeg2video -b:v 2M {bv}"),
         # ── FLV (Flash Video) ──
-        ("h264_flv.flv",       f"{si} -c:v libx264 {bv}"),
-        ("flv1_flv.flv",       f"{si} -c:v flv -b:v 2M -pix_fmt yuv420p"),
-
+        ("h264_flv.flv", f"{si} -c:v libx264 {bv}"),
+        ("flv1_flv.flv", f"{si} -c:v flv -b:v 2M -pix_fmt yuv420p"),
         # ── QuickTime / MOV ──
-        ("h264_mov.mov",       f"{si} -c:v libx264 {bv}"),
-        ("mpeg4_mov.mov",      f"{si} -c:v mpeg4 -b:v 2M {bv}"),
-        ("mjpeg_mov.mov",      f"{si} -c:v mjpeg -q:v 3 -pix_fmt yuvj420p"),
-
+        ("h264_mov.mov", f"{si} -c:v libx264 {bv}"),
+        ("mpeg4_mov.mov", f"{si} -c:v mpeg4 -b:v 2M {bv}"),
+        ("mjpeg_mov.mov", f"{si} -c:v mjpeg -q:v 3 -pix_fmt yuvj420p"),
         # ── WebM ──
-        ("vp8_webm.webm",     f"{si} -c:v libvpx -b:v 1M {bv}"),
-        ("vp9_webm.webm",     f"{si} -c:v libvpx-vp9 -b:v 1M {bv}"),
-        ("av1_webm.webm",     f"{si} -c:v libsvtav1 -preset 8 -pix_fmt yuv420p"),
-
+        ("vp8_webm.webm", f"{si} -c:v libvpx -b:v 1M {bv}"),
+        ("vp9_webm.webm", f"{si} -c:v libvpx-vp9 -b:v 1M {bv}"),
+        ("av1_webm.webm", f"{si} -c:v libsvtav1 -preset 8 -pix_fmt yuv420p"),
         # ── Ogg / OGV ──
-        ("theora_ogv.ogv",    f"{si} -c:v libtheora -q:v 5 -pix_fmt yuv420p"),
-
+        ("theora_ogv.ogv", f"{si} -c:v libtheora -q:v 5 -pix_fmt yuv420p"),
         # ── MPEG Program Stream (.mpg) ──
-        ("mpeg1_mpg.mpg",     f"{si} -c:v mpeg1video -b:v 2M -pix_fmt yuv420p"),
-        ("mpeg2_mpg.mpg",     f"{si} -c:v mpeg2video -b:v 2M {bv}"),
-
+        ("mpeg1_mpg.mpg", f"{si} -c:v mpeg1video -b:v 2M -pix_fmt yuv420p"),
+        ("mpeg2_mpg.mpg", f"{si} -c:v mpeg2video -b:v 2M {bv}"),
         # ── DVD VOB ──
-        ("mpeg2_vob.vob",     f"{si} -c:v mpeg2video -b:v 2M {bv}"),
-
+        ("mpeg2_vob.vob", f"{si} -c:v mpeg2video -b:v 2M {bv}"),
         # ── Windows Media Video (.wmv via ASF muxer) ──
-        ("wmv1_wmv.wmv",      f"{si} -c:v wmv1 -b:v 2M -pix_fmt yuv420p"),
-        ("wmv2_wmv.wmv",      f"{si} -c:v wmv2 -b:v 2M -pix_fmt yuv420p"),
-
+        ("wmv1_wmv.wmv", f"{si} -c:v wmv1 -b:v 2M -pix_fmt yuv420p"),
+        ("wmv2_wmv.wmv", f"{si} -c:v wmv2 -b:v 2M -pix_fmt yuv420p"),
         # ── ASF (Advanced Streaming Format) ──
-        ("msmpeg4_asf.asf",   f"{si} -c:v msmpeg4v2 -b:v 2M -pix_fmt yuv420p"),
-
+        ("msmpeg4_asf.asf", f"{si} -c:v msmpeg4v2 -b:v 2M -pix_fmt yuv420p"),
         # ── 3GPP / 3GPP2 ──
-        ("h264_3gp.3gp",      f"{si} -c:v libx264 -profile:v baseline -level 3.0 {bv}"),
-        ("h264_3g2.3g2",      f"{si} -c:v libx264 -profile:v baseline -level 3.0 {bv}"),
-
+        ("h264_3gp.3gp", f"{si} -c:v libx264 -profile:v baseline -level 3.0 {bv}"),
+        ("h264_3g2.3g2", f"{si} -c:v libx264 -profile:v baseline -level 3.0 {bv}"),
         # ── NUT (FFmpeg native container) ──
-        ("h264_nut.nut",      f"{si} -c:v libx264 {bv}"),
-
+        ("h264_nut.nut", f"{si} -c:v libx264 {bv}"),
         # ── IVF (VP8/VP9 elementary container) ──
-        ("vp8_ivf.ivf",       f"{si} -c:v libvpx -b:v 1M {bv}"),
-        ("vp9_ivf.ivf",       f"{si} -c:v libvpx-vp9 -b:v 1M {bv}"),
-
+        ("vp8_ivf.ivf", f"{si} -c:v libvpx -b:v 1M {bv}"),
+        ("vp9_ivf.ivf", f"{si} -c:v libvpx-vp9 -b:v 1M {bv}"),
         # ── F4V (Flash MP4 variant) ──
-        ("h264_f4v.f4v",      f"{si} -c:v libx264 {bv}"),
-
+        ("h264_f4v.f4v", f"{si} -c:v libx264 {bv}"),
         # ── M4V (iTunes MP4 variant) ──
-        ("h264_m4v.m4v",      f"{si} -c:v libx264 {bv}"),
-
+        ("h264_m4v.m4v", f"{si} -c:v libx264 {bv}"),
         # ── SWF (Shockwave Flash) ──
-        ("flv1_swf.swf",      f"{si} -c:v flv -b:v 2M -pix_fmt yuv420p"),
-
+        ("flv1_swf.swf", f"{si} -c:v flv -b:v 2M -pix_fmt yuv420p"),
         # ── RealMedia ──
-        ("rv20_rm.rm",        f"{si} -c:v rv20 -b:v 1M -pix_fmt yuv420p"),
-
+        ("rv20_rm.rm", f"{si} -c:v rv20 -b:v 1M -pix_fmt yuv420p"),
         # ── WTV (Windows Recorded TV) ──
-        ("mpeg2_wtv.wtv",     f"{si} -c:v mpeg2video -b:v 2M {bv}"),
-
+        ("mpeg2_wtv.wtv", f"{si} -c:v mpeg2video -b:v 2M {bv}"),
         # ── MXF (broadcast — requires standard resolution) ──
-        ("mpeg2_mxf.mxf",     f"{bi} -c:v mpeg2video -b:v 5M -pix_fmt yuv420p -g 15"),
-
+        ("mpeg2_mxf.mxf", f"{bi} -c:v mpeg2video -b:v 5M -pix_fmt yuv420p -g 15"),
         # ── GXF (broadcast — requires standard resolution) ──
-        ("mpeg2_gxf.gxf",     f"{bi} -c:v mpeg2video -b:v 5M -pix_fmt yuv420p -g 15"),
-
+        ("mpeg2_gxf.gxf", f"{bi} -c:v mpeg2video -b:v 5M -pix_fmt yuv420p -g 15"),
         # ── DV (requires 720x576 PAL or 720x480 NTSC) ──
-        ("dv_raw.dv",         f"{bi} -c:v dvvideo -pix_fmt yuv420p"),
-        ("dv_avi.avi",        f"{bi} -c:v dvvideo -pix_fmt yuv420p"),
+        ("dv_raw.dv", f"{bi} -c:v dvvideo -pix_fmt yuv420p"),
+        ("dv_avi.avi", f"{bi} -c:v dvvideo -pix_fmt yuv420p"),
     ]
 
     count = 0
@@ -198,9 +181,9 @@ def resolution_fixtures(ffmpeg: str, out_dir: Path, force: bool) -> int:
     d.mkdir(parents=True, exist_ok=True)
 
     resolutions = [
-        ("192x192.mp4",   "192x192"),
-        ("640x480.mp4",   "640x480"),
-        ("1280x720.mp4",  "1280x720"),
+        ("192x192.mp4", "192x192"),
+        ("640x480.mp4", "640x480"),
+        ("1280x720.mp4", "1280x720"),
         ("1920x1080.mp4", "1920x1080"),
     ]
 
@@ -212,11 +195,16 @@ def resolution_fixtures(ffmpeg: str, out_dir: Path, force: bool) -> int:
             continue
         args = [
             "-y",
-            "-f", "lavfi",
-            "-i", f"testsrc2=duration=3:size={size}:rate=30",
-            "-c:v", "libx264",
-            "-pix_fmt", "yuv420p",
-            "-g", "15",
+            "-f",
+            "lavfi",
+            "-i",
+            f"testsrc2=duration=3:size={size}:rate=30",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-g",
+            "15",
             str(path),
         ]
         if run_ffmpeg(ffmpeg, args, filename):
@@ -236,11 +224,16 @@ def edge_case_fixtures(ffmpeg: str, out_dir: Path, force: bool) -> int:
     if not path.exists() or force:
         args = [
             "-y",
-            "-f", "lavfi",
-            "-i", "testsrc2=duration=1:size=320x240:rate=30",
-            "-c:v", "libx264",
-            "-pix_fmt", "yuv420p",
-            "-frames:v", "1",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=duration=1:size=320x240:rate=30",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-frames:v",
+            "1",
             str(path),
         ]
         if run_ffmpeg(ffmpeg, args, "single_frame.mp4"):
@@ -253,11 +246,16 @@ def edge_case_fixtures(ffmpeg: str, out_dir: Path, force: bool) -> int:
     if not path.exists() or force:
         args = [
             "-y",
-            "-f", "lavfi",
-            "-i", "testsrc2=duration=2:size=320x240:rate=30",
-            "-c:v", "libx264",
-            "-pix_fmt", "yuv420p",
-            "-g", "1",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=duration=2:size=320x240:rate=30",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-g",
+            "1",
             str(path),
         ]
         if run_ffmpeg(ffmpeg, args, "all_keyframes.mp4"):
@@ -270,11 +268,16 @@ def edge_case_fixtures(ffmpeg: str, out_dir: Path, force: bool) -> int:
     if not path.exists() or force:
         args = [
             "-y",
-            "-f", "lavfi",
-            "-i", "testsrc2=duration=5:size=320x240:rate=30",
-            "-c:v", "libx264",
-            "-pix_fmt", "yuv420p",
-            "-g", "250",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=duration=5:size=320x240:rate=30",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-g",
+            "250",
             str(path),
         ]
         if run_ffmpeg(ffmpeg, args, "long_gop.mp4"):
@@ -289,11 +292,16 @@ def edge_case_fixtures(ffmpeg: str, out_dir: Path, force: bool) -> int:
         temp_path = d / "_truncated_source.mp4"
         args = [
             "-y",
-            "-f", "lavfi",
-            "-i", "testsrc2=duration=3:size=320x240:rate=30",
-            "-c:v", "libx264",
-            "-pix_fmt", "yuv420p",
-            "-g", "15",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=duration=3:size=320x240:rate=30",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-g",
+            "15",
             str(temp_path),
         ]
         if run_ffmpeg(ffmpeg, args, "truncated.mp4 (source)"):
@@ -319,10 +327,13 @@ def edge_case_fixtures(ffmpeg: str, out_dir: Path, force: bool) -> int:
     if not path.exists() or force:
         args = [
             "-y",
-            "-f", "lavfi",
-            "-i", "sine=duration=3",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=duration=3",
             "-vn",
-            "-c:a", "aac",
+            "-c:a",
+            "aac",
             str(path),
         ]
         if run_ffmpeg(ffmpeg, args, "no_video_stream.mp4"):
@@ -334,7 +345,7 @@ def edge_case_fixtures(ffmpeg: str, out_dir: Path, force: bool) -> int:
     path = d / "empty_file.mp4"
     if not path.exists() or force:
         path.write_bytes(b"")
-        print(f"  [empty_file.mp4] Created 0-byte file")
+        print("  [empty_file.mp4] Created 0-byte file")
         count += 1
     else:
         print(f"  [skip] {path} (already exists)")
@@ -346,10 +357,9 @@ def edge_case_fixtures(ffmpeg: str, out_dir: Path, force: bool) -> int:
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main():
-    parser = argparse.ArgumentParser(
-        description="Generate test video fixtures for vex"
-    )
+    parser = argparse.ArgumentParser(description="Generate test video fixtures for vex")
     parser.add_argument(
         "--ffmpeg",
         type=str,

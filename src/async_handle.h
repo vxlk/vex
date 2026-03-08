@@ -52,18 +52,17 @@ private:
         std::atomic<int> published{0};
         ThreadEvents() = default;
         ThreadEvents(ThreadEvents&& o) noexcept
-            : events(std::move(o.events))
-            , published(o.published.load(std::memory_order_relaxed)) {}
+            : events(std::move(o.events)), published(o.published.load(std::memory_order_relaxed)) {}
     };
     std::vector<ThreadEvents> thread_events_;
     std::vector<int> drain_cursors_;
 
     // Progress
-    std::atomic<int>  keyframes_decoded_{0};
-    std::atomic<int>  files_completed_{0};
+    std::atomic<int> keyframes_decoded_{0};
+    std::atomic<int> files_completed_{0};
     std::atomic<bool> done_{false};
 
-    std::mutex              done_mutex_;
+    std::mutex done_mutex_;
     std::condition_variable done_cv_;
 
     // File blob pointers for peek_jpeg
@@ -72,7 +71,7 @@ private:
 
     // Final results
     std::vector<LevelResult> results_;
-    DecodeMetrics            metrics_;
+    DecodeMetrics metrics_;
 };
 
-} // namespace vex
+}  // namespace vex

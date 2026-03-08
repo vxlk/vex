@@ -14,7 +14,8 @@ namespace vex {
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 static int64_t to_ms(int64_t timestamp, AVRational time_base) {
-    if (timestamp == AV_NOPTS_VALUE) return 0;
+    if (timestamp == AV_NOPTS_VALUE)
+        return 0;
     return av_rescale_q(timestamp, time_base, {1, 1000});
 }
 
@@ -31,14 +32,16 @@ static std::vector<KeyframeInfo> scan_container_index(AVFormatContext* fmt_ctx, 
 
     for (int i = 0; i < nb_entries; ++i) {
         const AVIndexEntry* entry = avformat_index_get_entry(stream, i);
-        if (!entry) continue;
-        if (!(entry->flags & AVINDEX_KEYFRAME)) continue;
+        if (!entry)
+            continue;
+        if (!(entry->flags & AVINDEX_KEYFRAME))
+            continue;
 
         KeyframeInfo kf{};
-        kf.byte_offset  = entry->pos;
-        kf.pts          = entry->timestamp;
-        kf.pts_ms       = to_ms(entry->timestamp, stream->time_base);
-        kf.size         = entry->size > 0 ? entry->size : -1;
+        kf.byte_offset = entry->pos;
+        kf.pts = entry->timestamp;
+        kf.pts_ms = to_ms(entry->timestamp, stream->time_base);
+        kf.size = entry->size > 0 ? entry->size : -1;
         keyframes.push_back(kf);
     }
 
@@ -55,16 +58,17 @@ static std::vector<KeyframeInfo> scan_packets(AVFormatContext* fmt_ctx, int stre
     av_seek_frame(fmt_ctx, stream_index, 0, AVSEEK_FLAG_BACKWARD);
 
     AVPacket* pkt = av_packet_alloc();
-    if (!pkt) return keyframes;
+    if (!pkt)
+        return keyframes;
 
     while (av_read_frame(fmt_ctx, pkt) >= 0) {
         if (pkt->stream_index == stream_index) {
             if (pkt->flags & AV_PKT_FLAG_KEY) {
                 KeyframeInfo kf{};
                 kf.byte_offset = pkt->pos;
-                kf.pts         = pkt->pts;
-                kf.pts_ms      = to_ms(pkt->pts, stream->time_base);
-                kf.size        = pkt->size > 0 ? pkt->size : -1;
+                kf.pts = pkt->pts;
+                kf.pts_ms = to_ms(pkt->pts, stream->time_base);
+                kf.size = pkt->size > 0 ? pkt->size : -1;
                 keyframes.push_back(kf);
             }
         }
@@ -83,10 +87,12 @@ static std::vector<KeyframeInfo> scan_decode(AVFormatContext* fmt_ctx, int strea
 
     // Create a temporary codec context for decoding
     const AVCodec* codec = avcodec_find_decoder(stream->codecpar->codec_id);
-    if (!codec) return keyframes;
+    if (!codec)
+        return keyframes;
 
     AVCodecContext* codec_ctx = avcodec_alloc_context3(codec);
-    if (!codec_ctx) return keyframes;
+    if (!codec_ctx)
+        return keyframes;
 
     if (avcodec_parameters_to_context(codec_ctx, stream->codecpar) < 0) {
         avcodec_free_context(&codec_ctx);
@@ -105,8 +111,8 @@ static std::vector<KeyframeInfo> scan_decode(AVFormatContext* fmt_ctx, int strea
     // Seek back to the beginning
     av_seek_frame(fmt_ctx, stream_index, 0, AVSEEK_FLAG_BACKWARD);
 
-    AVPacket* pkt   = av_packet_alloc();
-    AVFrame*  frame = av_frame_alloc();
+    AVPacket* pkt = av_packet_alloc();
+    AVFrame* frame = av_frame_alloc();
     if (!pkt || !frame) {
         av_packet_free(&pkt);
         av_frame_free(&frame);
@@ -130,9 +136,9 @@ static std::vector<KeyframeInfo> scan_decode(AVFormatContext* fmt_ctx, int strea
             if (frame->pict_type == AV_PICTURE_TYPE_I) {
                 KeyframeInfo kf{};
                 kf.byte_offset = pkt->pos;
-                kf.pts         = frame->pts;
-                kf.pts_ms      = to_ms(frame->pts, stream->time_base);
-                kf.size        = pkt->size > 0 ? pkt->size : -1;
+                kf.pts = frame->pts;
+                kf.pts_ms = to_ms(frame->pts, stream->time_base);
+                kf.size = pkt->size > 0 ? pkt->size : -1;
                 keyframes.push_back(kf);
             }
             av_frame_unref(frame);
@@ -147,9 +153,9 @@ static std::vector<KeyframeInfo> scan_decode(AVFormatContext* fmt_ctx, int strea
         if (frame->pict_type == AV_PICTURE_TYPE_I) {
             KeyframeInfo kf{};
             kf.byte_offset = 0;
-            kf.pts         = frame->pts;
-            kf.pts_ms      = to_ms(frame->pts, stream->time_base);
-            kf.size        = -1;
+            kf.pts = frame->pts;
+            kf.pts_ms = to_ms(frame->pts, stream->time_base);
+            kf.size = -1;
             keyframes.push_back(kf);
         }
         av_frame_unref(frame);
@@ -171,7 +177,8 @@ static std::vector<KeyframeInfo> scan_forced_interval(AVFormatContext* fmt_ctx, 
     av_seek_frame(fmt_ctx, stream_index, 0, AVSEEK_FLAG_BACKWARD);
 
     AVPacket* pkt = av_packet_alloc();
-    if (!pkt) return keyframes;
+    if (!pkt)
+        return keyframes;
 
     int packet_count = 0;
     while (av_read_frame(fmt_ctx, pkt) >= 0) {
@@ -179,9 +186,9 @@ static std::vector<KeyframeInfo> scan_forced_interval(AVFormatContext* fmt_ctx, 
             if (packet_count % 30 == 0) {
                 KeyframeInfo kf{};
                 kf.byte_offset = pkt->pos;
-                kf.pts         = pkt->pts;
-                kf.pts_ms      = to_ms(pkt->pts, stream->time_base);
-                kf.size        = pkt->size > 0 ? pkt->size : -1;
+                kf.pts = pkt->pts;
+                kf.pts_ms = to_ms(pkt->pts, stream->time_base);
+                kf.size = pkt->size > 0 ? pkt->size : -1;
                 keyframes.push_back(kf);
             }
             ++packet_count;
@@ -196,10 +203,9 @@ static std::vector<KeyframeInfo> scan_forced_interval(AVFormatContext* fmt_ctx, 
 // ── Finalize keyframes (sort + number) ──────────────────────────────────────
 
 static void finalize_keyframes(std::vector<KeyframeInfo>& keyframes) {
-    std::sort(keyframes.begin(), keyframes.end(),
-              [](const KeyframeInfo& a, const KeyframeInfo& b) {
-                  return a.byte_offset < b.byte_offset;
-              });
+    std::sort(keyframes.begin(), keyframes.end(), [](const KeyframeInfo& a, const KeyframeInfo& b) {
+        return a.byte_offset < b.byte_offset;
+    });
 
     for (int i = 0; i < static_cast<int>(keyframes.size()); ++i) {
         keyframes[i].frame_number = i;
@@ -218,9 +224,10 @@ KeyframeIndex scan_keyframes(AVFormatContext* fmt_ctx, int stream_index) {
     if (!keyframes.empty()) {
         finalize_keyframes(keyframes);
         result.keyframes = std::move(keyframes);
-        result.strategy  = IndexStrategy::CONTAINER_INDEX;
+        result.strategy = IndexStrategy::CONTAINER_INDEX;
         auto end = std::chrono::high_resolution_clock::now();
-        result.scan_time_us = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+        result.scan_time_us =
+            std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
         return result;
     }
 
@@ -229,9 +236,10 @@ KeyframeIndex scan_keyframes(AVFormatContext* fmt_ctx, int stream_index) {
     if (!keyframes.empty()) {
         finalize_keyframes(keyframes);
         result.keyframes = std::move(keyframes);
-        result.strategy  = IndexStrategy::PACKET_SCAN;
+        result.strategy = IndexStrategy::PACKET_SCAN;
         auto end = std::chrono::high_resolution_clock::now();
-        result.scan_time_us = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+        result.scan_time_us =
+            std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
         return result;
     }
 
@@ -240,9 +248,10 @@ KeyframeIndex scan_keyframes(AVFormatContext* fmt_ctx, int stream_index) {
     if (!keyframes.empty()) {
         finalize_keyframes(keyframes);
         result.keyframes = std::move(keyframes);
-        result.strategy  = IndexStrategy::DECODE_SCAN;
+        result.strategy = IndexStrategy::DECODE_SCAN;
         auto end = std::chrono::high_resolution_clock::now();
-        result.scan_time_us = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+        result.scan_time_us =
+            std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
         return result;
     }
 
@@ -251,17 +260,19 @@ KeyframeIndex scan_keyframes(AVFormatContext* fmt_ctx, int stream_index) {
     if (!keyframes.empty()) {
         finalize_keyframes(keyframes);
         result.keyframes = std::move(keyframes);
-        result.strategy  = IndexStrategy::FORCED_INTERVAL;
+        result.strategy = IndexStrategy::FORCED_INTERVAL;
         auto end = std::chrono::high_resolution_clock::now();
-        result.scan_time_us = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+        result.scan_time_us =
+            std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
         return result;
     }
 
     // Strategy 5: Skip
     result.strategy = IndexStrategy::SKIPPED;
     auto end = std::chrono::high_resolution_clock::now();
-    result.scan_time_us = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    result.scan_time_us =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
     return result;
 }
 
-} // namespace vex
+}  // namespace vex

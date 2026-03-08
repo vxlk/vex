@@ -11,6 +11,9 @@
 #   fixtures       Generate test video fixtures
 #   bench          Run speed comparison vs FFmpeg and generate chart
 #   run-example    Run all examples against fixtures
+#   lint           Run C++ and Python linters (read-only checks)
+#   fmt            Auto-format C++ and Python code
+#   check          Run lint + build with warnings-as-errors
 
 set -euo pipefail
 
@@ -138,6 +141,74 @@ cmd_run_example() {
     log "All examples complete."
 }
 
+cmd_lint() {
+    local rc=0
+
+    # ── C++: clang-format dry-run ──
+    log "Checking C++ formatting (clang-format)..."
+    local cpp_files
+    cpp_files=$(find "$PROJECT_ROOT/src" -type f \( -name '*.cpp' -o -name '*.h' \))
+    if [ -n "$cpp_files" ]; then
+        if ! echo "$cpp_files" | xargs clang-format --dry-run --Werror 2>&1; then
+            log "C++ formatting issues found. Run './dev.sh fmt' to fix."
+            rc=1
+        fi
+    fi
+
+    # ── Python: ruff lint ──
+    log "Checking Python (ruff lint)..."
+    if ! ruff check "$PROJECT_ROOT/python" "$PROJECT_ROOT/tools" "$PROJECT_ROOT/examples" "$PROJECT_ROOT/tests" 2>&1; then
+        rc=1
+    fi
+
+    # ── Python: ruff format check ──
+    log "Checking Python formatting (ruff format)..."
+    if ! ruff format --check "$PROJECT_ROOT/python" "$PROJECT_ROOT/tools" "$PROJECT_ROOT/examples" "$PROJECT_ROOT/tests" 2>&1; then
+        log "Python formatting issues found. Run './dev.sh fmt' to fix."
+        rc=1
+    fi
+
+    if [ $rc -eq 0 ]; then
+        log "All lint checks passed."
+    else
+        log "Lint checks failed."
+        exit 1
+    fi
+}
+
+cmd_fmt() {
+    # ── C++: clang-format ──
+    log "Formatting C++ (clang-format)..."
+    local cpp_files
+    cpp_files=$(find "$PROJECT_ROOT/src" -type f \( -name '*.cpp' -o -name '*.h' \))
+    if [ -n "$cpp_files" ]; then
+        echo "$cpp_files" | xargs clang-format -i
+    fi
+
+    # ── Python: ruff ──
+    log "Formatting Python (ruff)..."
+    ruff check --fix "$PROJECT_ROOT/python" "$PROJECT_ROOT/tools" "$PROJECT_ROOT/examples" "$PROJECT_ROOT/tests" 2>&1 || true
+    ruff format "$PROJECT_ROOT/python" "$PROJECT_ROOT/tools" "$PROJECT_ROOT/examples" "$PROJECT_ROOT/tests"
+
+    log "Formatting complete."
+}
+
+cmd_check() {
+    # Step 1: lint
+    cmd_lint
+
+    # Step 2: build with warnings-as-errors
+    log "Building with warnings-as-errors..."
+    ensure_cmake
+    mkdir -p "$BUILD_DIR"
+    cmake -S "$PROJECT_ROOT" -B "$BUILD_DIR" \
+        -G "Visual Studio 17 2022" -A x64 \
+        -DCMAKE_CXX_FLAGS="/WX"
+    cmake --build "$BUILD_DIR" --config Release -- /p:TreatWarningsAsErrors=true
+
+    log "All checks passed."
+}
+
 # ── Dispatch ───────────────────────────────────────────────────────────────
 
 case "${1:-help}" in
@@ -149,6 +220,9 @@ case "${1:-help}" in
     fixtures)       shift; cmd_fixtures "$@" ;;
     bench)          shift; cmd_bench "$@" ;;
     run-example)    cmd_run_example ;;
+    lint)           cmd_lint ;;
+    fmt)            cmd_fmt ;;
+    check)          cmd_check ;;
     help|--help|-h)
         echo "Usage: ./dev.sh <command>"
         echo ""
@@ -161,6 +235,9 @@ case "${1:-help}" in
         echo "  fixtures       Generate test video fixtures"
         echo "  bench          Run speed comparison vs FFmpeg and generate chart"
         echo "  run-example    Run all examples"
+        echo "  lint           Run C++ and Python linters (read-only)"
+        echo "  fmt            Auto-format C++ and Python code"
+        echo "  check          Lint + build with warnings-as-errors"
         ;;
     *)
         err "Unknown command: $1. Run './dev.sh help' for usage."

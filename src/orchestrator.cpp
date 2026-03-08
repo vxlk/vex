@@ -28,10 +28,10 @@ namespace vex {
 // ── Shared work queue ───────────────────────────────────────────────────────
 
 struct WorkQueue {
-    std::mutex              mutex;
+    std::mutex mutex;
     std::condition_variable cv;
-    std::deque<int>         file_indices;
-    bool                    shutdown = false;
+    std::deque<int> file_indices;
+    bool shutdown = false;
 
     void populate(int num_files) {
         std::lock_guard<std::mutex> lock(mutex);
@@ -44,7 +44,8 @@ struct WorkQueue {
     int dequeue() {
         std::unique_lock<std::mutex> lock(mutex);
         cv.wait(lock, [this]() { return !file_indices.empty() || shutdown; });
-        if (file_indices.empty()) return -1;
+        if (file_indices.empty())
+            return -1;
         int idx = file_indices.front();
         file_indices.pop_front();
         return idx;
@@ -60,10 +61,10 @@ struct WorkQueue {
 // ── Per-level accumulator for disk output ───────────────────────────────────
 
 struct DiskFrameEntry {
-    int      file_index;
-    int      frame_index;
-    int64_t  pts_ms;
-    int      frame_number;
+    int file_index;
+    int frame_index;
+    int64_t pts_ms;
+    int frame_number;
     std::vector<uint8_t> jpeg_data;
 };
 
@@ -75,20 +76,21 @@ struct DiskLevelAccum {
 // ── Per-level in-memory blobs container ─────────────────────────────────────
 
 struct MemoryLevelAccum {
-    std::vector<FileBlob> blobs;          // one per file, pre-sized
-    std::vector<std::vector<std::array<int64_t,3>>> metadata; // per-file metadata
+    std::vector<FileBlob> blobs;                                // one per file, pre-sized
+    std::vector<std::vector<std::array<int64_t, 3>>> metadata;  // per-file metadata
 };
 
 // ── YUV buffer for per-thread scaling ───────────────────────────────────────
 
 struct YUVBuffer {
     std::vector<uint8_t> y, u, v;
-    int width  = 0;
+    int width = 0;
     int height = 0;
 
     void ensure(int w, int h) {
-        if (w == width && h == height) return;
-        width  = w;
+        if (w == width && h == height)
+            return;
+        width = w;
         height = h;
         y.resize(static_cast<size_t>(w) * h);
         u.resize(static_cast<size_t>(w / 2) * (h / 2));
@@ -108,7 +110,7 @@ struct SharedContext {
 
     // HW acceleration (optional)
     std::optional<HWAccelContext> hw_ctx;
-    std::string hw_backend_name;   // "d3d11va", "cuda", "qsv", "vaapi", or ""
+    std::string hw_backend_name;  // "d3d11va", "cuda", "qsv", "vaapi", or ""
 
     // Per-level accumulators (shared_ptrs for thread-safe sharing)
     std::vector<std::shared_ptr<MemoryLevelAccum>> mem_accums;
@@ -121,9 +123,7 @@ struct SharedContext {
     // Wall-clock start
     std::chrono::high_resolution_clock::time_point wall_start;
 
-    HWAccelContext* hw_ptr() {
-        return hw_ctx.has_value() ? &hw_ctx.value() : nullptr;
-    }
+    HWAccelContext* hw_ptr() { return hw_ctx.has_value() ? &hw_ctx.value() : nullptr; }
 };
 
 // ── Worker thread function ──────────────────────────────────────────────────
@@ -142,7 +142,8 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
     // Worker loop: dequeue files one at a time
     while (true) {
         int file_idx = ctx->work_queue->dequeue();
-        if (file_idx < 0) break;
+        if (file_idx < 0)
+            break;
 
         const std::string& path = ctx->config.paths[static_cast<size_t>(file_idx)];
 
@@ -160,365 +161,361 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
             FileDecoder probe(path, nullptr);
             if (probe.is_valid()) {
                 int src_pixels = probe.source_width() * probe.source_height();
-                hw_compatible = can_hw_decode(
-                    hw_ptr->device_type, probe.codec_id())
-                    && (src_pixels >= HW_MIN_PIXELS);
+                hw_compatible = can_hw_decode(hw_ptr->device_type, probe.codec_id()) &&
+                                (src_pixels >= HW_MIN_PIXELS);
             }
         }
 
         for (int hw_attempt = 0; hw_attempt < 2; ++hw_attempt) {
-        HWAccelContext* use_hw = nullptr;
-        if (hw_attempt == 0 && hw_compatible) {
-            use_hw = hw_ptr;
-        }
-        // On retry (attempt 1), only if we actually tried HW on attempt 0
-        if (hw_attempt == 1 && !hw_compatible) break;
+            HWAccelContext* use_hw = nullptr;
+            if (hw_attempt == 0 && hw_compatible) {
+                use_hw = hw_ptr;
+            }
+            // On retry (attempt 1), only if we actually tried HW on attempt 0
+            if (hw_attempt == 1 && !hw_compatible)
+                break;
 
-        FileDecoder decoder_file(path, use_hw);
-        if (!decoder_file.is_valid()) {
-            if (hw_attempt == 0 && hw_ptr) continue; // retry with software
-            FileStats fs{};
-            fs.file_index      = file_idx;
-            fs.index_strategy  = IndexStrategy::SKIPPED;
-            fs.file_size_bytes = 0;
-            fs.hw_accel_used   = (use_hw != nullptr);
-            tm.file_stats.push_back(fs);
-            skip_file = true;
-            break;
-        }
+            FileDecoder decoder_file(path, use_hw);
+            if (!decoder_file.is_valid()) {
+                if (hw_attempt == 0 && hw_ptr)
+                    continue;  // retry with software
+                FileStats fs{};
+                fs.file_index = file_idx;
+                fs.index_strategy = IndexStrategy::SKIPPED;
+                fs.file_size_bytes = 0;
+                fs.hw_accel_used = (use_hw != nullptr);
+                tm.file_stats.push_back(fs);
+                skip_file = true;
+                break;
+            }
 
-        int src_w = decoder_file.source_width();
-        int src_h = decoder_file.source_height();
+            int src_w = decoder_file.source_width();
+            int src_h = decoder_file.source_height();
 
-        // Resolve native-resolution sentinels (width=0 or height=0 → source)
-        std::vector<LevelConfig> resolved = ctx->config.levels;
-        for (auto& rl : resolved) {
-            if (rl.width  <= 0) rl.width  = src_w;
-            if (rl.height <= 0) rl.height = src_h;
-        }
+            // Resolve native-resolution sentinels (width=0 or height=0 → source)
+            std::vector<LevelConfig> resolved = ctx->config.levels;
+            for (auto& rl : resolved) {
+                if (rl.width <= 0)
+                    rl.width = src_w;
+                if (rl.height <= 0)
+                    rl.height = src_h;
+            }
 
-        // Per-file scaler cache (one per level)
-        std::vector<std::unique_ptr<FrameScaler>> scalers(
-            static_cast<size_t>(ctx->num_levels));
+            // Per-file scaler cache (one per level)
+            std::vector<std::unique_ptr<FrameScaler>> scalers(static_cast<size_t>(ctx->num_levels));
 
-        int64_t file_decode_us = 0;
-        int frames_decoded_this_file = 0;
+            int64_t file_decode_us = 0;
+            int frames_decoded_this_file = 0;
 
-        // ── Shared per-frame level processing lambda ───────────────────
-        auto process_frame_levels = [&](int frame_idx, int64_t pts_ms,
-                                        int frame_number) {
-            for (int l = 0; l < ctx->num_levels; ++l) {
-                const auto& lc = resolved[static_cast<size_t>(l)];
-                auto& lm = tm.levels[static_cast<size_t>(l)];
+            // ── Shared per-frame level processing lambda ───────────────────
+            auto process_frame_levels = [&](int frame_idx, int64_t pts_ms, int frame_number) {
+                for (int l = 0; l < ctx->num_levels; ++l) {
+                    const auto& lc = resolved[static_cast<size_t>(l)];
+                    auto& lm = tm.levels[static_cast<size_t>(l)];
 
-                // Set level metadata once
-                lm.width         = lc.width;
-                lm.height        = lc.height;
-                lm.quality       = lc.quality;
-                lm.output_format = (lc.output == OutputFormat::JPEG_STREAM) ?
-                                   "jpeg_stream" : "sprite_atlas";
+                    // Set level metadata once
+                    lm.width = lc.width;
+                    lm.height = lc.height;
+                    lm.quality = lc.quality;
+                    lm.output_format =
+                        (lc.output == OutputFormat::JPEG_STREAM) ? "jpeg_stream" : "sprite_atlas";
 
-                // Create/reuse scaler for this level
-                if (!scalers[static_cast<size_t>(l)]) {
-                    scalers[static_cast<size_t>(l)] =
-                        std::make_unique<FrameScaler>(src_w, src_h, lc.width, lc.height);
-                }
-
-                auto& scaler = *scalers[static_cast<size_t>(l)];
-
-                // Resolve YUV plane pointers: scale into buffer, or
-                // read decoded frame planes directly (zero-copy identity).
-                const uint8_t* plane_y;
-                const uint8_t* plane_u;
-                const uint8_t* plane_v;
-                int y_stride, uv_stride;
-
-                if (scaler.needs_scaling()) {
-                    auto& buf = scale_bufs[static_cast<size_t>(l)];
-                    buf.ensure(lc.width, lc.height);
-                    y_stride  = lc.width;
-                    uv_stride = lc.width / 2;
-                    {
-                        ScopedTimer scale_timer(lm.scale_us);
-                        scaler.scale(decode_frame,
-                                     buf.y.data(), buf.u.data(), buf.v.data(),
-                                     y_stride, uv_stride);
-                    }
-                    plane_y = buf.y.data();
-                    plane_u = buf.u.data();
-                    plane_v = buf.v.data();
-                } else {
-                    // Identity: use decoded frame planes directly — no copy
-                    plane_y = decode_frame->data[0];
-                    plane_u = decode_frame->data[1];
-                    plane_v = decode_frame->data[2];
-                    y_stride  = decode_frame->linesize[0];
-                    uv_stride = decode_frame->linesize[1];
-                }
-
-                // Handle output based on format
-                if (lc.output == OutputFormat::JPEG_STREAM && lc.in_memory) {
-                    auto& accum = ctx->mem_accums[static_cast<size_t>(l)];
-                    auto& blob = accum->blobs[static_cast<size_t>(file_idx)];
-
-                    // Grow blob if needed (sequential decode may exceed estimate)
-                    size_t max_jpeg = JpegEncoder::max_jpeg_size(lc.width, lc.height);
-                    blob.ensure_remaining(max_jpeg);
-                    size_t remaining = blob.capacity - blob.size;
-
-                    size_t jpeg_size;
-                    {
-                        ScopedTimer enc_timer(lm.encode_us);
-                        jpeg_size = encoder.encode(
-                            plane_y, plane_u, plane_v,
-                            y_stride, uv_stride,
-                            lc.width, lc.height, lc.quality,
-                            blob.data + blob.size,
-                            remaining);
+                    // Create/reuse scaler for this level
+                    if (!scalers[static_cast<size_t>(l)]) {
+                        scalers[static_cast<size_t>(l)] =
+                            std::make_unique<FrameScaler>(src_w, src_h, lc.width, lc.height);
                     }
 
-                    if (jpeg_size > 0) {
-                        uint32_t blob_offset = static_cast<uint32_t>(blob.size);
-                        blob.offsets.push_back(static_cast<int64_t>(blob.size));
-                        blob.size += jpeg_size;
+                    auto& scaler = *scalers[static_cast<size_t>(l)];
 
-                        lm.output_bytes += static_cast<int64_t>(jpeg_size);
+                    // Resolve YUV plane pointers: scale into buffer, or
+                    // read decoded frame planes directly (zero-copy identity).
+                    const uint8_t* plane_y;
+                    const uint8_t* plane_u;
+                    const uint8_t* plane_v;
+                    int y_stride, uv_stride;
+
+                    if (scaler.needs_scaling()) {
+                        auto& buf = scale_bufs[static_cast<size_t>(l)];
+                        buf.ensure(lc.width, lc.height);
+                        y_stride = lc.width;
+                        uv_stride = lc.width / 2;
+                        {
+                            ScopedTimer scale_timer(lm.scale_us);
+                            scaler.scale(decode_frame, buf.y.data(), buf.u.data(), buf.v.data(),
+                                         y_stride, uv_stride);
+                        }
+                        plane_y = buf.y.data();
+                        plane_u = buf.u.data();
+                        plane_v = buf.v.data();
+                    } else {
+                        // Identity: use decoded frame planes directly — no copy
+                        plane_y = decode_frame->data[0];
+                        plane_u = decode_frame->data[1];
+                        plane_v = decode_frame->data[2];
+                        y_stride = decode_frame->linesize[0];
+                        uv_stride = decode_frame->linesize[1];
+                    }
+
+                    // Handle output based on format
+                    if (lc.output == OutputFormat::JPEG_STREAM && lc.in_memory) {
+                        auto& accum = ctx->mem_accums[static_cast<size_t>(l)];
+                        auto& blob = accum->blobs[static_cast<size_t>(file_idx)];
+
+                        // Grow blob if needed (sequential decode may exceed estimate)
+                        size_t max_jpeg = JpegEncoder::max_jpeg_size(lc.width, lc.height);
+                        blob.ensure_remaining(max_jpeg);
+                        size_t remaining = blob.capacity - blob.size;
+
+                        size_t jpeg_size;
+                        {
+                            ScopedTimer enc_timer(lm.encode_us);
+                            jpeg_size = encoder.encode(plane_y, plane_u, plane_v, y_stride,
+                                                       uv_stride, lc.width, lc.height, lc.quality,
+                                                       blob.data + blob.size, remaining);
+                        }
+
+                        if (jpeg_size > 0) {
+                            uint32_t blob_offset = static_cast<uint32_t>(blob.size);
+                            blob.offsets.push_back(static_cast<int64_t>(blob.size));
+                            blob.size += jpeg_size;
+
+                            lm.output_bytes += static_cast<int64_t>(jpeg_size);
+                            lm.frame_count++;
+
+                            // Record metadata
+                            std::array<int64_t, 3> meta = {static_cast<int64_t>(file_idx),
+                                                           static_cast<int64_t>(frame_number),
+                                                           pts_ms};
+                            accum->metadata[static_cast<size_t>(file_idx)].push_back(meta);
+
+                            // Publish event for async consumers
+                            FrameEvent evt{};
+                            evt.file_index = file_idx;
+                            evt.frame_index = frame_idx;
+                            evt.level_index = l;
+                            evt.pts_ms = pts_ms;
+                            evt.blob_offset = blob_offset;
+                            evt.jpeg_size = static_cast<uint32_t>(jpeg_size);
+                            ctx->handle->publish_event(thread_id, evt);
+                        }
+
+                    } else if (lc.output == OutputFormat::SPRITE_ATLAS) {
+                        auto& atlas = ctx->atlas_builders[static_cast<size_t>(l)];
+                        atlas->ensure_time_step(frame_idx);
+
+                        {
+                            ScopedTimer comp_timer(lm.atlas_composite_us);
+                            atlas->add_thumbnail(frame_idx, file_idx, plane_y, plane_u, plane_v,
+                                                 y_stride, uv_stride);
+                        }
+
                         lm.frame_count++;
 
-                        // Record metadata
-                        std::array<int64_t,3> meta = {
-                            static_cast<int64_t>(file_idx),
-                            static_cast<int64_t>(frame_number),
-                            pts_ms
-                        };
-                        accum->metadata[static_cast<size_t>(file_idx)].push_back(meta);
+                    } else if (lc.output == OutputFormat::JPEG_STREAM && !lc.in_memory) {
+                        // Disk output: encode to temp buffer, store for later
+                        size_t max_size = JpegEncoder::max_jpeg_size(lc.width, lc.height);
+                        std::vector<uint8_t> jpeg_buf(max_size);
 
-                        // Publish event for async consumers
-                        FrameEvent evt{};
-                        evt.file_index  = file_idx;
-                        evt.frame_index = frame_idx;
-                        evt.level_index = l;
-                        evt.pts_ms      = pts_ms;
-                        evt.blob_offset = blob_offset;
-                        evt.jpeg_size   = static_cast<uint32_t>(jpeg_size);
-                        ctx->handle->publish_event(thread_id, evt);
+                        size_t jpeg_size;
+                        {
+                            ScopedTimer enc_timer(lm.encode_us);
+                            jpeg_size = encoder.encode(plane_y, plane_u, plane_v, y_stride,
+                                                       uv_stride, lc.width, lc.height, lc.quality,
+                                                       jpeg_buf.data(), max_size);
+                        }
+
+                        if (jpeg_size > 0) {
+                            jpeg_buf.resize(jpeg_size);
+                            lm.output_bytes += static_cast<int64_t>(jpeg_size);
+                            lm.frame_count++;
+
+                            DiskFrameEntry entry{};
+                            entry.file_index = file_idx;
+                            entry.frame_index = frame_idx;
+                            entry.pts_ms = pts_ms;
+                            entry.frame_number = frame_number;
+                            entry.jpeg_data = std::move(jpeg_buf);
+
+                            auto& disk_accum = ctx->disk_accums[static_cast<size_t>(l)];
+                            std::lock_guard<std::mutex> lock(disk_accum->mutex);
+                            disk_accum->entries.push_back(std::move(entry));
+                        }
                     }
+                }  // per-level
+            };
 
-                } else if (lc.output == OutputFormat::SPRITE_ATLAS) {
-                    auto& atlas = ctx->atlas_builders[static_cast<size_t>(l)];
-                    atlas->ensure_time_step(frame_idx);
-
-                    {
-                        ScopedTimer comp_timer(lm.atlas_composite_us);
-                        atlas->add_thumbnail(frame_idx, file_idx,
-                            plane_y, plane_u, plane_v,
-                            y_stride, uv_stride);
-                    }
-
-                    lm.frame_count++;
-
-                } else if (lc.output == OutputFormat::JPEG_STREAM && !lc.in_memory) {
-                    // Disk output: encode to temp buffer, store for later
-                    size_t max_size = JpegEncoder::max_jpeg_size(lc.width, lc.height);
-                    std::vector<uint8_t> jpeg_buf(max_size);
-
-                    size_t jpeg_size;
-                    {
-                        ScopedTimer enc_timer(lm.encode_us);
-                        jpeg_size = encoder.encode(
-                            plane_y, plane_u, plane_v,
-                            y_stride, uv_stride,
-                            lc.width, lc.height, lc.quality,
-                            jpeg_buf.data(), max_size);
-                    }
-
-                    if (jpeg_size > 0) {
-                        jpeg_buf.resize(jpeg_size);
-                        lm.output_bytes += static_cast<int64_t>(jpeg_size);
-                        lm.frame_count++;
-
-                        DiskFrameEntry entry{};
-                        entry.file_index   = file_idx;
-                        entry.frame_index  = frame_idx;
-                        entry.pts_ms       = pts_ms;
-                        entry.frame_number = frame_number;
-                        entry.jpeg_data    = std::move(jpeg_buf);
-
-                        auto& disk_accum = ctx->disk_accums[static_cast<size_t>(l)];
-                        std::lock_guard<std::mutex> lock(disk_accum->mutex);
-                        disk_accum->entries.push_back(std::move(entry));
-                    }
-                }
-            } // per-level
-        };
-
-        // ── Keyframe-only path ─────────────────────────────────────────
-        if (ctx->config.keyframes_only) {
-            // Scan keyframes (timed)
-            KeyframeIndex kf_index;
-            {
-                ScopedTimer timer(tm.index_scan_us);
-                kf_index = decoder_file.scan_keyframes();
-            }
-
-            const auto& keyframes = kf_index.keyframes;
-            int kf_count = static_cast<int>(keyframes.size());
-
-            if (kf_count == 0) {
-                FileStats fs{};
-                fs.file_index      = file_idx;
-                fs.index_strategy  = kf_index.strategy;
-                fs.file_size_bytes = decoder_file.file_size();
-                fs.keyframe_count  = 0;
-                fs.codec_name      = decoder_file.codec_name();
-                fs.source_width    = decoder_file.source_width();
-                fs.source_height   = decoder_file.source_height();
-                fs.hw_accel_used   = (use_hw != nullptr);
-                tm.file_stats.push_back(fs);
-                break; // falls through to retry check
-            }
-
-            // Pre-allocate FileBlobs for in-memory JPEG_STREAM levels
-            for (int l = 0; l < ctx->num_levels; ++l) {
-                const auto& lc = resolved[static_cast<size_t>(l)];
-                if (lc.output == OutputFormat::JPEG_STREAM && lc.in_memory) {
-                    size_t max_per_frame = JpegEncoder::max_jpeg_size(lc.width, lc.height);
-                    size_t total_cap = max_per_frame * kf_count;
-                    auto& accum = ctx->mem_accums[static_cast<size_t>(l)];
-                    accum->blobs[static_cast<size_t>(file_idx)].allocate(total_cap);
-                }
-            }
-
-            // Process each keyframe
-            for (int ki = 0; ki < kf_count; ++ki) {
-                const KeyframeInfo& kf = keyframes[static_cast<size_t>(ki)];
-
-                bool decoded = false;
+            // ── Keyframe-only path ─────────────────────────────────────────
+            if (ctx->config.keyframes_only) {
+                // Scan keyframes (timed)
+                KeyframeIndex kf_index;
                 {
-                    ScopedTimer dec_timer(tm.decode_us);
-                    decoded = decoder_file.seek_and_decode(kf, decode_frame);
+                    ScopedTimer timer(tm.index_scan_us);
+                    kf_index = decoder_file.scan_keyframes();
                 }
 
-                if (!decoded) {
-                    tm.keyframes_skipped++;
-                    continue;
+                const auto& keyframes = kf_index.keyframes;
+                int kf_count = static_cast<int>(keyframes.size());
+
+                if (kf_count == 0) {
+                    FileStats fs{};
+                    fs.file_index = file_idx;
+                    fs.index_strategy = kf_index.strategy;
+                    fs.file_size_bytes = decoder_file.file_size();
+                    fs.keyframe_count = 0;
+                    fs.codec_name = decoder_file.codec_name();
+                    fs.source_width = decoder_file.source_width();
+                    fs.source_height = decoder_file.source_height();
+                    fs.hw_accel_used = (use_hw != nullptr);
+                    tm.file_stats.push_back(fs);
+                    break;  // falls through to retry check
                 }
 
-                tm.keyframes_decoded++;
-                frames_decoded_this_file++;
-                ctx->handle->increment_keyframes(1);
-
-                process_frame_levels(ki, kf.pts_ms, kf.frame_number);
-
-                av_frame_unref(decode_frame);
-            } // per-keyframe
-
-            // Record file stats
-            FileStats fs{};
-            fs.file_index      = file_idx;
-            fs.decode_us       = file_decode_us;
-            fs.keyframe_count  = kf_count;
-            fs.file_size_bytes = decoder_file.file_size();
-            fs.index_strategy  = kf_index.strategy;
-            fs.codec_name      = decoder_file.codec_name();
-            fs.source_width    = decoder_file.source_width();
-            fs.source_height   = decoder_file.source_height();
-            fs.hw_accel_used   = (use_hw != nullptr);
-            tm.file_stats.push_back(fs);
-
-        // ── Sequential (every-frame) path ──────────────────────────────
-        } else {
-            int est_frames = decoder_file.estimated_frame_count();
-            int frame_skip = std::max(1, ctx->config.frame_skip);
-            int est_output = (est_frames + frame_skip - 1) / frame_skip;
-
-            // Pre-allocate FileBlobs with 1.5x estimated count
-            for (int l = 0; l < ctx->num_levels; ++l) {
-                const auto& lc = resolved[static_cast<size_t>(l)];
-                if (lc.output == OutputFormat::JPEG_STREAM && lc.in_memory) {
-                    size_t max_per_frame = JpegEncoder::max_jpeg_size(lc.width, lc.height);
-                    size_t total_cap = max_per_frame *
-                        static_cast<size_t>(est_output * 3 / 2 + 1);
-                    auto& accum = ctx->mem_accums[static_cast<size_t>(l)];
-                    accum->blobs[static_cast<size_t>(file_idx)].allocate(total_cap);
-                }
-            }
-
-            if (!decoder_file.seek_to_start()) {
-                FileStats fs{};
-                fs.file_index      = file_idx;
-                fs.index_strategy  = IndexStrategy::SKIPPED;
-                fs.file_size_bytes = decoder_file.file_size();
-                fs.codec_name      = decoder_file.codec_name();
-                fs.source_width    = decoder_file.source_width();
-                fs.source_height   = decoder_file.source_height();
-                fs.hw_accel_used   = (use_hw != nullptr);
-                tm.file_stats.push_back(fs);
-                break; // falls through to retry check
-            }
-
-            int seq_idx = 0;      // raw frame counter
-            int output_idx = 0;   // output frame counter (after skip)
-
-            while (true) {
-                bool decoded = false;
-                {
-                    ScopedTimer dec_timer(tm.decode_us);
-                    decoded = decoder_file.decode_next(decode_frame);
+                // Pre-allocate FileBlobs for in-memory JPEG_STREAM levels
+                for (int l = 0; l < ctx->num_levels; ++l) {
+                    const auto& lc = resolved[static_cast<size_t>(l)];
+                    if (lc.output == OutputFormat::JPEG_STREAM && lc.in_memory) {
+                        size_t max_per_frame = JpegEncoder::max_jpeg_size(lc.width, lc.height);
+                        size_t total_cap = max_per_frame * kf_count;
+                        auto& accum = ctx->mem_accums[static_cast<size_t>(l)];
+                        accum->blobs[static_cast<size_t>(file_idx)].allocate(total_cap);
+                    }
                 }
 
-                if (!decoded) break;
+                // Process each keyframe
+                for (int ki = 0; ki < kf_count; ++ki) {
+                    const KeyframeInfo& kf = keyframes[static_cast<size_t>(ki)];
 
-                // Apply frame_skip: only process every Nth frame
-                if (seq_idx % frame_skip == 0) {
-                    int64_t pts_ms = decoder_file.frame_pts_ms(decode_frame);
+                    bool decoded = false;
+                    {
+                        ScopedTimer dec_timer(tm.decode_us);
+                        decoded = decoder_file.seek_and_decode(kf, decode_frame);
+                    }
+
+                    if (!decoded) {
+                        tm.keyframes_skipped++;
+                        continue;
+                    }
 
                     tm.keyframes_decoded++;
                     frames_decoded_this_file++;
                     ctx->handle->increment_keyframes(1);
 
-                    process_frame_levels(output_idx, pts_ms, seq_idx);
-                    output_idx++;
+                    process_frame_levels(ki, kf.pts_ms, kf.frame_number);
+
+                    av_frame_unref(decode_frame);
+                }  // per-keyframe
+
+                // Record file stats
+                FileStats fs{};
+                fs.file_index = file_idx;
+                fs.decode_us = file_decode_us;
+                fs.keyframe_count = kf_count;
+                fs.file_size_bytes = decoder_file.file_size();
+                fs.index_strategy = kf_index.strategy;
+                fs.codec_name = decoder_file.codec_name();
+                fs.source_width = decoder_file.source_width();
+                fs.source_height = decoder_file.source_height();
+                fs.hw_accel_used = (use_hw != nullptr);
+                tm.file_stats.push_back(fs);
+
+                // ── Sequential (every-frame) path ──────────────────────────────
+            } else {
+                int est_frames = decoder_file.estimated_frame_count();
+                int frame_skip = std::max(1, ctx->config.frame_skip);
+                int est_output = (est_frames + frame_skip - 1) / frame_skip;
+
+                // Pre-allocate FileBlobs with 1.5x estimated count
+                for (int l = 0; l < ctx->num_levels; ++l) {
+                    const auto& lc = resolved[static_cast<size_t>(l)];
+                    if (lc.output == OutputFormat::JPEG_STREAM && lc.in_memory) {
+                        size_t max_per_frame = JpegEncoder::max_jpeg_size(lc.width, lc.height);
+                        size_t total_cap =
+                            max_per_frame * static_cast<size_t>(est_output * 3 / 2 + 1);
+                        auto& accum = ctx->mem_accums[static_cast<size_t>(l)];
+                        accum->blobs[static_cast<size_t>(file_idx)].allocate(total_cap);
+                    }
                 }
 
-                av_frame_unref(decode_frame);
-                seq_idx++;
+                if (!decoder_file.seek_to_start()) {
+                    FileStats fs{};
+                    fs.file_index = file_idx;
+                    fs.index_strategy = IndexStrategy::SKIPPED;
+                    fs.file_size_bytes = decoder_file.file_size();
+                    fs.codec_name = decoder_file.codec_name();
+                    fs.source_width = decoder_file.source_width();
+                    fs.source_height = decoder_file.source_height();
+                    fs.hw_accel_used = (use_hw != nullptr);
+                    tm.file_stats.push_back(fs);
+                    break;  // falls through to retry check
+                }
+
+                int seq_idx = 0;     // raw frame counter
+                int output_idx = 0;  // output frame counter (after skip)
+
+                while (true) {
+                    bool decoded = false;
+                    {
+                        ScopedTimer dec_timer(tm.decode_us);
+                        decoded = decoder_file.decode_next(decode_frame);
+                    }
+
+                    if (!decoded)
+                        break;
+
+                    // Apply frame_skip: only process every Nth frame
+                    if (seq_idx % frame_skip == 0) {
+                        int64_t pts_ms = decoder_file.frame_pts_ms(decode_frame);
+
+                        tm.keyframes_decoded++;
+                        frames_decoded_this_file++;
+                        ctx->handle->increment_keyframes(1);
+
+                        process_frame_levels(output_idx, pts_ms, seq_idx);
+                        output_idx++;
+                    }
+
+                    av_frame_unref(decode_frame);
+                    seq_idx++;
+                }
+
+                // Record file stats
+                FileStats fs{};
+                fs.file_index = file_idx;
+                fs.decode_us = file_decode_us;
+                fs.keyframe_count = frames_decoded_this_file;
+                fs.file_size_bytes = decoder_file.file_size();
+                fs.index_strategy = IndexStrategy::DECODE_SCAN;
+                fs.codec_name = decoder_file.codec_name();
+                fs.source_width = decoder_file.source_width();
+                fs.source_height = decoder_file.source_height();
+                fs.hw_accel_used = (use_hw != nullptr);
+                tm.file_stats.push_back(fs);
             }
 
-            // Record file stats
-            FileStats fs{};
-            fs.file_index      = file_idx;
-            fs.decode_us       = file_decode_us;
-            fs.keyframe_count  = frames_decoded_this_file;
-            fs.file_size_bytes = decoder_file.file_size();
-            fs.index_strategy  = IndexStrategy::DECODE_SCAN;
-            fs.codec_name      = decoder_file.codec_name();
-            fs.source_width    = decoder_file.source_width();
-            fs.source_height   = decoder_file.source_height();
-            fs.hw_accel_used   = (use_hw != nullptr);
-            tm.file_stats.push_back(fs);
-        }
+            // If frames were produced, we're done with this file
+            if (frames_decoded_this_file > 0)
+                break;
 
-        // If frames were produced, we're done with this file
-        if (frames_decoded_this_file > 0) break;
+            // If no HW was used, no point retrying
+            if (!use_hw)
+                break;
 
-        // If no HW was used, no point retrying
-        if (!use_hw) break;
-
-        // HW produced 0 frames — clean up and retry with software decode.
-        // Remove the file stats entry we just pushed.
-        if (!tm.file_stats.empty()) tm.file_stats.pop_back();
-        // Reset blobs for this file (allocate frees existing data first)
-        for (int l = 0; l < ctx->num_levels; ++l) {
-            if (ctx->config.levels[static_cast<size_t>(l)].output ==
-                OutputFormat::JPEG_STREAM &&
-                ctx->config.levels[static_cast<size_t>(l)].in_memory) {
-                auto& accum = ctx->mem_accums[static_cast<size_t>(l)];
-                accum->blobs[static_cast<size_t>(file_idx)].allocate(1);
-                accum->metadata[static_cast<size_t>(file_idx)].clear();
+            // HW produced 0 frames — clean up and retry with software decode.
+            // Remove the file stats entry we just pushed.
+            if (!tm.file_stats.empty())
+                tm.file_stats.pop_back();
+            // Reset blobs for this file (allocate frees existing data first)
+            for (int l = 0; l < ctx->num_levels; ++l) {
+                if (ctx->config.levels[static_cast<size_t>(l)].output ==
+                        OutputFormat::JPEG_STREAM &&
+                    ctx->config.levels[static_cast<size_t>(l)].in_memory) {
+                    auto& accum = ctx->mem_accums[static_cast<size_t>(l)];
+                    accum->blobs[static_cast<size_t>(file_idx)].allocate(1);
+                    accum->metadata[static_cast<size_t>(file_idx)].clear();
+                }
             }
-        }
-        } // for hw_attempt
+        }  // for hw_attempt
 
         if (skip_file) {
             ctx->handle->increment_files(1);
@@ -533,20 +530,24 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
             // Check if any frames were produced across all levels
             for (int l = 0; l < ctx->num_levels; ++l) {
                 if (ctx->config.levels[static_cast<size_t>(l)].output ==
-                    OutputFormat::JPEG_STREAM &&
+                        OutputFormat::JPEG_STREAM &&
                     ctx->config.levels[static_cast<size_t>(l)].in_memory) {
                     auto& accum = ctx->mem_accums[static_cast<size_t>(l)];
                     auto& blob = accum->blobs[static_cast<size_t>(file_idx)];
-                    if (blob.size > 0) { any_decoded = true; break; }
+                    if (blob.size > 0) {
+                        any_decoded = true;
+                        break;
+                    }
                 }
             }
 
             if (!any_decoded) {
                 // Reset blobs and file stats for this file
-                if (!tm.file_stats.empty()) tm.file_stats.pop_back();
+                if (!tm.file_stats.empty())
+                    tm.file_stats.pop_back();
                 for (int l = 0; l < ctx->num_levels; ++l) {
                     if (ctx->config.levels[static_cast<size_t>(l)].output ==
-                        OutputFormat::JPEG_STREAM &&
+                            OutputFormat::JPEG_STREAM &&
                         ctx->config.levels[static_cast<size_t>(l)].in_memory) {
                         auto& accum = ctx->mem_accums[static_cast<size_t>(l)];
                         accum->blobs[static_cast<size_t>(file_idx)].allocate(1);
@@ -561,18 +562,21 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
                     int fb_src_h = fallback_dec.source_height();
                     std::vector<LevelConfig> fb_resolved = ctx->config.levels;
                     for (auto& rl : fb_resolved) {
-                        if (rl.width  <= 0) rl.width  = fb_src_w;
-                        if (rl.height <= 0) rl.height = fb_src_h;
+                        if (rl.width <= 0)
+                            rl.width = fb_src_w;
+                        if (rl.height <= 0)
+                            rl.height = fb_src_h;
                     }
 
                     int est = fallback_dec.estimated_frame_count();
                     for (int l = 0; l < ctx->num_levels; ++l) {
                         const auto& lc = fb_resolved[static_cast<size_t>(l)];
                         if (lc.output == OutputFormat::JPEG_STREAM && lc.in_memory) {
-                            size_t cap = JpegEncoder::max_jpeg_size(lc.width, lc.height)
-                                         * static_cast<size_t>(est * 3 / 2 + 1);
+                            size_t cap = JpegEncoder::max_jpeg_size(lc.width, lc.height) *
+                                         static_cast<size_t>(est * 3 / 2 + 1);
                             ctx->mem_accums[static_cast<size_t>(l)]
-                                ->blobs[static_cast<size_t>(file_idx)].allocate(cap);
+                                ->blobs[static_cast<size_t>(file_idx)]
+                                .allocate(cap);
                         }
                     }
 
@@ -585,27 +589,33 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
                         for (int l = 0; l < ctx->num_levels; ++l) {
                             const auto& lc = fb_resolved[static_cast<size_t>(l)];
                             auto& lm = tm.levels[static_cast<size_t>(l)];
-                            lm.width = lc.width; lm.height = lc.height;
+                            lm.width = lc.width;
+                            lm.height = lc.height;
                             lm.quality = lc.quality;
-                            lm.output_format = (lc.output == OutputFormat::JPEG_STREAM) ?
-                                               "jpeg_stream" : "sprite_atlas";
+                            lm.output_format = (lc.output == OutputFormat::JPEG_STREAM)
+                                                   ? "jpeg_stream"
+                                                   : "sprite_atlas";
 
                             if (!fb_scalers[static_cast<size_t>(l)]) {
-                                fb_scalers[static_cast<size_t>(l)] =
-                                    std::make_unique<FrameScaler>(
-                                        fb_src_w, fb_src_h, lc.width, lc.height);
+                                fb_scalers[static_cast<size_t>(l)] = std::make_unique<FrameScaler>(
+                                    fb_src_w, fb_src_h, lc.width, lc.height);
                             }
                             auto& scaler = *fb_scalers[static_cast<size_t>(l)];
 
-                            const uint8_t* py; const uint8_t* pu; const uint8_t* pv;
+                            const uint8_t* py;
+                            const uint8_t* pu;
+                            const uint8_t* pv;
                             int ys, uvs;
                             if (scaler.needs_scaling()) {
                                 auto& buf = scale_bufs[static_cast<size_t>(l)];
                                 buf.ensure(lc.width, lc.height);
-                                ys = lc.width; uvs = lc.width / 2;
-                                scaler.scale(decode_frame,
-                                    buf.y.data(), buf.u.data(), buf.v.data(), ys, uvs);
-                                py = buf.y.data(); pu = buf.u.data(); pv = buf.v.data();
+                                ys = lc.width;
+                                uvs = lc.width / 2;
+                                scaler.scale(decode_frame, buf.y.data(), buf.u.data(), buf.v.data(),
+                                             ys, uvs);
+                                py = buf.y.data();
+                                pu = buf.u.data();
+                                pv = buf.v.data();
                             } else {
                                 py = decode_frame->data[0];
                                 pu = decode_frame->data[1];
@@ -620,18 +630,16 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
                                 size_t max_jpeg = JpegEncoder::max_jpeg_size(lc.width, lc.height);
                                 blob.ensure_remaining(max_jpeg);
                                 size_t jpeg_size = encoder.encode(
-                                    py, pu, pv, ys, uvs,
-                                    lc.width, lc.height, lc.quality,
-                                    blob.data + blob.size,
-                                    blob.capacity - blob.size);
+                                    py, pu, pv, ys, uvs, lc.width, lc.height, lc.quality,
+                                    blob.data + blob.size, blob.capacity - blob.size);
                                 if (jpeg_size > 0) {
                                     blob.offsets.push_back(static_cast<int64_t>(blob.size));
                                     blob.size += jpeg_size;
                                     lm.output_bytes += static_cast<int64_t>(jpeg_size);
                                     lm.frame_count++;
-                                    accum->metadata[static_cast<size_t>(file_idx)].push_back({
-                                        static_cast<int64_t>(file_idx),
-                                        static_cast<int64_t>(frame_number), pts_ms});
+                                    accum->metadata[static_cast<size_t>(file_idx)].push_back(
+                                        {static_cast<int64_t>(file_idx),
+                                         static_cast<int64_t>(frame_number), pts_ms});
                                 }
                             }
                         }
@@ -641,8 +649,12 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
                         int seq = 0, out = 0;
                         while (true) {
                             bool ok;
-                            { ScopedTimer t(tm.decode_us); ok = fallback_dec.decode_next(decode_frame); }
-                            if (!ok) break;
+                            {
+                                ScopedTimer t(tm.decode_us);
+                                ok = fallback_dec.decode_next(decode_frame);
+                            }
+                            if (!ok)
+                                break;
                             int64_t pts = fallback_dec.frame_pts_ms(decode_frame);
                             tm.keyframes_decoded++;
                             ctx->handle->increment_keyframes(1);
@@ -654,14 +666,14 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
                     }
 
                     FileStats fs{};
-                    fs.file_index      = file_idx;
-                    fs.keyframe_count  = 0; // sequential fallback
+                    fs.file_index = file_idx;
+                    fs.keyframe_count = 0;  // sequential fallback
                     fs.file_size_bytes = fallback_dec.file_size();
-                    fs.index_strategy  = IndexStrategy::DECODE_SCAN;
-                    fs.codec_name      = fallback_dec.codec_name();
-                    fs.source_width    = fallback_dec.source_width();
-                    fs.source_height   = fallback_dec.source_height();
-                    fs.hw_accel_used   = false; // fallback is always SW
+                    fs.index_strategy = IndexStrategy::DECODE_SCAN;
+                    fs.codec_name = fallback_dec.codec_name();
+                    fs.source_width = fallback_dec.source_width();
+                    fs.source_height = fallback_dec.source_height();
+                    fs.hw_accel_used = false;  // fallback is always SW
                     tm.file_stats.push_back(fs);
                 }
             }
@@ -679,27 +691,27 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
         }
 
         ctx->handle->increment_files(1);
-    } // while (dequeue)
+    }  // while (dequeue)
 
     av_frame_free(&decode_frame);
 }
 
 // ── Manager thread function (joins workers, finalizes results) ──────────────
 
-static void manager_func(std::shared_ptr<SharedContext> ctx,
-                          std::vector<std::thread> workers) {
+static void manager_func(std::shared_ptr<SharedContext> ctx, std::vector<std::thread> workers) {
     // Signal shutdown so workers exit after queue is drained
     ctx->work_queue->signal_shutdown();
 
     // Join all workers
     for (auto& w : workers) {
-        if (w.joinable()) w.join();
+        if (w.joinable())
+            w.join();
     }
 
     // Wall-clock end
     auto wall_end = std::chrono::high_resolution_clock::now();
-    int64_t wall_us = std::chrono::duration_cast<std::chrono::microseconds>(
-        wall_end - ctx->wall_start).count();
+    int64_t wall_us =
+        std::chrono::duration_cast<std::chrono::microseconds>(wall_end - ctx->wall_start).count();
 
     int num_threads = static_cast<int>(ctx->all_metrics.size());
 
@@ -711,10 +723,9 @@ static void manager_func(std::shared_ptr<SharedContext> ctx,
     }
 
     // Merge metrics
-    DecodeMetrics metrics = merge_thread_metrics(tm_vec, ctx->num_levels, wall_us,
-                                                 num_threads);
+    DecodeMetrics metrics = merge_thread_metrics(tm_vec, ctx->num_levels, wall_us, num_threads);
     metrics.hw_accel_backend = ctx->hw_backend_name;
-    metrics.encoder          = "libturbojpeg";
+    metrics.encoder = "libturbojpeg";
 
     // Build LevelResults
     std::vector<LevelResult> results(static_cast<size_t>(ctx->num_levels));
@@ -722,7 +733,7 @@ static void manager_func(std::shared_ptr<SharedContext> ctx,
     for (int l = 0; l < ctx->num_levels; ++l) {
         const auto& lc = ctx->config.levels[static_cast<size_t>(l)];
         auto& lr = results[static_cast<size_t>(l)];
-        lr.format    = lc.output;
+        lr.format = lc.output;
         lr.in_memory = lc.in_memory;
 
         if (lc.output == OutputFormat::JPEG_STREAM && lc.in_memory) {
@@ -759,14 +770,15 @@ static void manager_func(std::shared_ptr<SharedContext> ctx,
 
             // Sort entries by file_index, then frame_index for sequential writes
             std::sort(disk_accum->entries.begin(), disk_accum->entries.end(),
-                [](const DiskFrameEntry& a, const DiskFrameEntry& b) {
-                    if (a.file_index != b.file_index) return a.file_index < b.file_index;
-                    return a.frame_index < b.frame_index;
-                });
+                      [](const DiskFrameEntry& a, const DiskFrameEntry& b) {
+                          if (a.file_index != b.file_index)
+                              return a.file_index < b.file_index;
+                          return a.frame_index < b.frame_index;
+                      });
 
             DiskWriter writer(lc.cache_path);
             if (writer.is_valid()) {
-                std::vector<std::array<int64_t,3>> metadata;
+                std::vector<std::array<int64_t, 3>> metadata;
 
                 int64_t io_us = 0;
                 for (auto& entry : disk_accum->entries) {
@@ -774,11 +786,8 @@ static void manager_func(std::shared_ptr<SharedContext> ctx,
                         ScopedTimer timer(io_us);
                         writer.write_frame(entry.jpeg_data.data(), entry.jpeg_data.size());
                     }
-                    metadata.push_back({
-                        static_cast<int64_t>(entry.file_index),
-                        static_cast<int64_t>(entry.frame_number),
-                        entry.pts_ms
-                    });
+                    metadata.push_back({static_cast<int64_t>(entry.file_index),
+                                        static_cast<int64_t>(entry.frame_number), entry.pts_ms});
                 }
                 metrics.io_us += io_us;
 
@@ -799,22 +808,23 @@ static void manager_func(std::shared_ptr<SharedContext> ctx,
 
 // ── batch_decode_async ──────────────────────────────────────────────────────
 
-std::shared_ptr<DecodeHandle>
-Orchestrator::batch_decode_async(const BatchConfig& config) {
-    const int num_files  = static_cast<int>(config.paths.size());
+std::shared_ptr<DecodeHandle> Orchestrator::batch_decode_async(const BatchConfig& config) {
+    const int num_files = static_cast<int>(config.paths.size());
     const int num_levels = static_cast<int>(config.levels.size());
 
     // Determine thread count
     int hw_threads = static_cast<int>(std::thread::hardware_concurrency());
-    if (hw_threads <= 0) hw_threads = 4;
+    if (hw_threads <= 0)
+        hw_threads = 4;
     int num_threads = std::min({config.max_threads, num_files, hw_threads});
-    if (num_threads <= 0) num_threads = 1;
+    if (num_threads <= 0)
+        num_threads = 1;
 
     // Build shared context (heap-allocated, shared among all threads)
     auto ctx = std::make_shared<SharedContext>();
-    ctx->config     = config;
+    ctx->config = config;
     ctx->num_levels = num_levels;
-    ctx->num_files  = num_files;
+    ctx->num_files = num_files;
     ctx->wall_start = std::chrono::high_resolution_clock::now();
 
     // Create shared handle
@@ -824,8 +834,7 @@ Orchestrator::batch_decode_async(const BatchConfig& config) {
     if (config.use_hw_accel) {
         ctx->hw_ctx = get_cached_hw_accel();
         if (ctx->hw_ctx.has_value()) {
-            const char* name = av_hwdevice_get_type_name(
-                ctx->hw_ctx->device_type);
+            const char* name = av_hwdevice_get_type_name(ctx->hw_ctx->device_type);
             ctx->hw_backend_name = name ? name : "";
         }
     }
@@ -876,11 +885,11 @@ Orchestrator::batch_decode_async(const BatchConfig& config) {
 
 // ── batch_decode (synchronous) ──────────────────────────────────────────────
 
-std::pair<std::vector<LevelResult>, DecodeMetrics>
-Orchestrator::batch_decode(const BatchConfig& config) {
+std::pair<std::vector<LevelResult>, DecodeMetrics> Orchestrator::batch_decode(
+    const BatchConfig& config) {
     auto handle = batch_decode_async(config);
     handle->wait_until_done();
     return handle->get_results();
 }
 
-} // namespace vex
+}  // namespace vex

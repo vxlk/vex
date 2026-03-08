@@ -1,15 +1,21 @@
 """Disk cache — decode to disk and reload via memory-mapped CachedLevel."""
 
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'python'))
+import os
+import sys
 
-from vex import batch_decode, LevelConfig, CachedLevel
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
+
+from vex import CachedLevel, LevelConfig, batch_decode
 
 # Output goes to output/04_disk_cache/
-OUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'example_output', '04_disk_cache')
+OUT_DIR = os.path.join(
+    os.path.dirname(__file__), "..", "example_output", "04_disk_cache"
+)
 os.makedirs(OUT_DIR, exist_ok=True)
 
-VIDEO = os.path.join(os.path.dirname(__file__), '..', 'fixtures', 'formats', 'h264_mp4.mp4')
+VIDEO = os.path.join(
+    os.path.dirname(__file__), "..", "fixtures", "formats", "h264_mp4.mp4"
+)
 
 cache_path = os.path.join(OUT_DIR, "vex_example_cache.bin")
 
@@ -17,11 +23,13 @@ print(f"Decoding to disk: {cache_path}")
 
 results, metrics = batch_decode(
     paths=[VIDEO],
-    levels=[LevelConfig(
-        output="jpeg_stream",
-        in_memory=False,
-        cache_path=cache_path,
-    )],
+    levels=[
+        LevelConfig(
+            output="jpeg_stream",
+            in_memory=False,
+            cache_path=cache_path,
+        )
+    ],
 )
 
 disk = results[0]

@@ -30,16 +30,14 @@ size_t JpegEncoder::max_jpeg_size(int width, int height) {
 
 // ── encode ──────────────────────────────────────────────────────────────────
 
-size_t JpegEncoder::encode(const uint8_t* y, const uint8_t* u, const uint8_t* v,
-                           int y_stride, int uv_stride,
-                           int width, int height, int quality,
-                           uint8_t* output, size_t capacity)
-{
-    const unsigned char* planes[3] = { y, u, v };
-    int strides[3] = { y_stride, uv_stride, uv_stride };
+size_t JpegEncoder::encode(const uint8_t* y, const uint8_t* u, const uint8_t* v, int y_stride,
+                           int uv_stride, int width, int height, int quality, uint8_t* output,
+                           size_t capacity) {
+    const unsigned char* planes[3] = {y, u, v};
+    int strides[3] = {y_stride, uv_stride, uv_stride};
 
-    unsigned char* jpeg_buf  = output;
-    unsigned long  jpeg_size = static_cast<unsigned long>(capacity);
+    unsigned char* jpeg_buf = output;
+    unsigned long jpeg_size = static_cast<unsigned long>(capacity);
 
     // Use fast DCT for quality <= 90 where rounding differences are
     // absorbed by quantization and produce no visible artifacts.
@@ -48,17 +46,8 @@ size_t JpegEncoder::encode(const uint8_t* y, const uint8_t* u, const uint8_t* v,
         flags |= TJFLAG_FASTDCT;
     }
 
-    int ret = tjCompressFromYUVPlanes(
-        tj_,
-        planes,
-        width,
-        strides,
-        height,
-        TJSAMP_420,
-        &jpeg_buf,
-        &jpeg_size,
-        quality,
-        flags);
+    int ret = tjCompressFromYUVPlanes(tj_, planes, width, strides, height, TJSAMP_420, &jpeg_buf,
+                                      &jpeg_size, quality, flags);
 
     if (ret != 0) {
         return 0;
@@ -67,4 +56,4 @@ size_t JpegEncoder::encode(const uint8_t* y, const uint8_t* u, const uint8_t* v,
     return static_cast<size_t>(jpeg_size);
 }
 
-} // namespace vex
+}  // namespace vex

@@ -1,12 +1,14 @@
 """vex -- High-Performance Video Thumbnail Extraction"""
+
 from __future__ import annotations
-from typing import List, Optional, Union, Tuple
-from dataclasses import dataclass
-import numpy as np
+
+import mmap
 import os
 import struct
-import mmap
+from dataclasses import dataclass
+from typing import List, Optional, Union
 
+import numpy as np
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -24,6 +26,7 @@ frame is encoded directly from the decoder output with no scaling at all.
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class LevelConfig:
@@ -64,6 +67,7 @@ class LevelConfig:
                        Only used when ``output="sprite_atlas"``.
                        Defaults to ``10``.
     """
+
     width: int = NATIVE
     height: int = NATIVE
     quality: int = 100
@@ -77,6 +81,7 @@ class LevelConfig:
 # Result wrapper classes
 # ---------------------------------------------------------------------------
 
+
 class JpegStreamResult:
     """In-memory JPEG stream result for one level.
 
@@ -89,8 +94,9 @@ class JpegStreamResult:
                   [file_index, frame_number, pts_ms].
     """
 
-    def __init__(self, blobs: List[np.ndarray], offsets: List[np.ndarray],
-                 metadata: np.ndarray):
+    def __init__(
+        self, blobs: List[np.ndarray], offsets: List[np.ndarray], metadata: np.ndarray
+    ):
         self.blobs = blobs
         self.offsets = offsets
         self.metadata = metadata
@@ -99,7 +105,11 @@ class JpegStreamResult:
         """Extract a single JPEG as Python bytes."""
         off = self.offsets[file_index]
         start = int(off[frame_index])
-        end = int(off[frame_index + 1]) if frame_index + 1 < len(off) else len(self.blobs[file_index])
+        end = (
+            int(off[frame_index + 1])
+            if frame_index + 1 < len(off)
+            else len(self.blobs[file_index])
+        )
         return bytes(self.blobs[file_index][start:end])
 
     def __repr__(self) -> str:
@@ -121,9 +131,16 @@ class SpriteAtlasResult:
         file_count: number of source files.
     """
 
-    def __init__(self, blob: np.ndarray, offsets: np.ndarray,
-                 grid_w: int, grid_h: int, thumb_w: int, thumb_h: int,
-                 file_count: int):
+    def __init__(
+        self,
+        blob: np.ndarray,
+        offsets: np.ndarray,
+        grid_w: int,
+        grid_h: int,
+        thumb_w: int,
+        thumb_h: int,
+        file_count: int,
+    ):
         self.blob = blob
         self.offsets = offsets
         self.grid_w = grid_w
@@ -140,9 +157,11 @@ class SpriteAtlasResult:
 
     def __repr__(self) -> str:
         n_atlases = len(self.offsets) - 1 if len(self.offsets) > 0 else 0
-        return (f"SpriteAtlasResult(atlases={n_atlases}, "
-                f"grid={self.grid_w}x{self.grid_h}, "
-                f"thumb={self.thumb_w}x{self.thumb_h})")
+        return (
+            f"SpriteAtlasResult(atlases={n_atlases}, "
+            f"grid={self.grid_w}x{self.grid_h}, "
+            f"thumb={self.thumb_w}x{self.thumb_h})"
+        )
 
 
 class DiskResult:
@@ -155,16 +174,19 @@ class DiskResult:
         metadata:    numpy structured array [file_index, frame_number, pts_ms].
     """
 
-    def __init__(self, cache_path: str, frame_count: int, total_bytes: int,
-                 metadata: np.ndarray):
+    def __init__(
+        self, cache_path: str, frame_count: int, total_bytes: int, metadata: np.ndarray
+    ):
         self.cache_path = cache_path
         self.frame_count = frame_count
         self.total_bytes = total_bytes
         self.metadata = metadata
 
     def __repr__(self) -> str:
-        return (f"DiskResult(path={self.cache_path!r}, "
-                f"frames={self.frame_count}, bytes={self.total_bytes})")
+        return (
+            f"DiskResult(path={self.cache_path!r}, "
+            f"frames={self.frame_count}, bytes={self.total_bytes})"
+        )
 
 
 class BatchResult:
@@ -204,7 +226,9 @@ class BatchResult:
 
     # -- index access: result[0] ----------------------------------------------
 
-    def __getitem__(self, index: int) -> Union[JpegStreamResult, SpriteAtlasResult, DiskResult]:
+    def __getitem__(
+        self, index: int
+    ) -> Union[JpegStreamResult, SpriteAtlasResult, DiskResult]:
         return self.levels[index]
 
     # -- typed accessors ------------------------------------------------------
@@ -219,7 +243,8 @@ class BatchResult:
         r = self.levels[level]
         if not isinstance(r, JpegStreamResult):
             raise TypeError(
-                f"Level {level} is {type(r).__name__}, not JpegStreamResult")
+                f"Level {level} is {type(r).__name__}, not JpegStreamResult"
+            )
         return r
 
     def sprite_atlas(self, level: int = 0) -> SpriteAtlasResult:
@@ -232,7 +257,8 @@ class BatchResult:
         r = self.levels[level]
         if not isinstance(r, SpriteAtlasResult):
             raise TypeError(
-                f"Level {level} is {type(r).__name__}, not SpriteAtlasResult")
+                f"Level {level} is {type(r).__name__}, not SpriteAtlasResult"
+            )
         return r
 
     def disk(self, level: int = 0) -> DiskResult:
@@ -244,12 +270,11 @@ class BatchResult:
         """
         r = self.levels[level]
         if not isinstance(r, DiskResult):
-            raise TypeError(
-                f"Level {level} is {type(r).__name__}, not DiskResult")
+            raise TypeError(f"Level {level} is {type(r).__name__}, not DiskResult")
         return r
 
     def __repr__(self) -> str:
-        types = [type(l).__name__ for l in self.levels]
+        types = [type(lv).__name__ for lv in self.levels]
         return f"BatchResult(levels={types}, {self.metrics!r})"
 
 
@@ -310,8 +335,11 @@ class DecodeMetrics:
         return 0.0
 
     _STRATEGY_NAMES = {
-        0: "container_index", 1: "packet_scan", 2: "decode_scan",
-        3: "forced_interval", 4: "skipped",
+        0: "container_index",
+        1: "packet_scan",
+        2: "decode_scan",
+        3: "forced_interval",
+        4: "skipped",
     }
 
     def log_summary(self) -> str:
@@ -328,16 +356,18 @@ class DecodeMetrics:
         """
         lines = []
         wall_ms = self.total_wall_us / 1000
-        lines.append(f"vex decode  wall={wall_ms:.1f}ms  "
-                     f"frames={self.keyframes_decoded}  "
-                     f"fps={self.pipeline_fps:.1f}")
+        lines.append(
+            f"vex decode  wall={wall_ms:.1f}ms  "
+            f"frames={self.keyframes_decoded}  "
+            f"fps={self.pipeline_fps:.1f}"
+        )
         hw = self.hw_accel_backend or "none"
-        lines.append(f"  hw_accel={hw}  encoder={self.encoder}  "
-                     f"threads={self.threads_used}")
+        lines.append(
+            f"  hw_accel={hw}  encoder={self.encoder}  threads={self.threads_used}"
+        )
 
         for fs in self.file_stats:
-            strat = self._STRATEGY_NAMES.get(fs.get("index_strategy", 4),
-                                             "unknown")
+            strat = self._STRATEGY_NAMES.get(fs.get("index_strategy", 4), "unknown")
             hw_flag = "hw" if fs.get("hw_accel_used") else "sw"
             lines.append(
                 f"  file[{fs['file_index']}]  "
@@ -360,10 +390,12 @@ class DecodeMetrics:
 
     def __repr__(self) -> str:
         wall_ms = self.total_wall_us / 1000
-        return (f"DecodeMetrics(wall={wall_ms:.1f}ms, "
-                f"files={self.files_processed}, "
-                f"keyframes={self.keyframes_decoded}, "
-                f"pipeline_fps={self.pipeline_fps:.1f})")
+        return (
+            f"DecodeMetrics(wall={wall_ms:.1f}ms, "
+            f"files={self.files_processed}, "
+            f"keyframes={self.keyframes_decoded}, "
+            f"pipeline_fps={self.pipeline_fps:.1f})"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -374,7 +406,7 @@ class DecodeMetrics:
 #   [JPEG frames concatenated] [offset table: int64[frame_count+1]] [CacheHeader: 64 bytes]
 # CacheHeader is at the END of the file (last 64 bytes).
 
-_CACHE_MAGIC = 0x00584556    # 'VEX\0'
+_CACHE_MAGIC = 0x00584556  # 'VEX\0'
 _CACHE_VERSION = 1
 _HEADER_SIZE = 64
 _HEADER_FMT = "<IIIIqqQiiII8s"  # matches CacheHeader layout
@@ -429,11 +461,13 @@ class CachedLevel:
         if magic != _CACHE_MAGIC:
             self._file.close()
             raise ValueError(
-                f"Invalid cache magic: 0x{magic:08X} (expected 0x{_CACHE_MAGIC:08X})")
+                f"Invalid cache magic: 0x{magic:08X} (expected 0x{_CACHE_MAGIC:08X})"
+            )
         if version != _CACHE_VERSION:
             self._file.close()
             raise ValueError(
-                f"Unsupported cache version: {version} (expected {_CACHE_VERSION})")
+                f"Unsupported cache version: {version} (expected {_CACHE_VERSION})"
+            )
 
         self._frame_count = frame_count
 
@@ -496,13 +530,16 @@ class CachedLevel:
         self.close()
 
     def __repr__(self) -> str:
-        return (f"CachedLevel(path={self._path!r}, frames={self._frame_count}, "
-                f"size={self._width}x{self._height})")
+        return (
+            f"CachedLevel(path={self._path!r}, frames={self._frame_count}, "
+            f"size={self._width}x{self._height})"
+        )
 
 
 # ---------------------------------------------------------------------------
 # Native module import helper
 # ---------------------------------------------------------------------------
+
 
 def _load_native():
     """Import the C++ _vex_core extension module.
@@ -517,12 +554,14 @@ def _load_native():
 
     try:
         from . import _vex_core
+
         return _vex_core
     except ImportError:
         pass
 
     try:
         import _vex_core
+
         return _vex_core
     except ImportError:
         pass
@@ -531,7 +570,7 @@ def _load_native():
         "vex native module (_vex_core) is not built.\n"
         "Build it with:\n"
         "  mkdir build && cd build\n"
-        "  cmake .. -G \"Visual Studio 17 2022\" -A x64\n"
+        '  cmake .. -G "Visual Studio 17 2022" -A x64\n'
         "  cmake --build . --config Release\n"
         "See deps/README.md for dependency setup instructions."
     )
@@ -551,28 +590,32 @@ def _to_native_levels(_vex_core, levels: List[LevelConfig]):
         fmt = lv.output.lower().strip()
         if fmt not in _VALID_OUTPUTS:
             raise ValueError(
-                f"Invalid output format {lv.output!r}. "
-                f"Must be one of: {sorted(_VALID_OUTPUTS)}")
+                f"Invalid output format {lv.output!r}. Must be one of: {sorted(_VALID_OUTPUTS)}"
+            )
         if fmt == "sprite_atlas" and (lv.width <= 0 or lv.height <= 0):
             raise ValueError(
                 f"Level {i}: sprite_atlas requires explicit width and height "
                 f"(got {lv.width}x{lv.height}).  NATIVE (0) is only "
-                f"supported with jpeg_stream output.")
-        native.append(_vex_core.LevelConfig(
-            width=lv.width,
-            height=lv.height,
-            quality=lv.quality,
-            output=fmt,
-            in_memory=lv.in_memory,
-            cache_path=lv.cache_path or "",
-            atlas_columns=lv.atlas_columns,
-        ))
+                f"supported with jpeg_stream output."
+            )
+        native.append(
+            _vex_core.LevelConfig(
+                width=lv.width,
+                height=lv.height,
+                quality=lv.quality,
+                output=fmt,
+                in_memory=lv.in_memory,
+                cache_path=lv.cache_path or "",
+                atlas_columns=lv.atlas_columns,
+            )
+        )
     return native
 
 
 # ---------------------------------------------------------------------------
 # Helper: wrap raw C++ results into Python classes
 # ---------------------------------------------------------------------------
+
 
 def _wrap_level_result(raw) -> Union[JpegStreamResult, SpriteAtlasResult, DiskResult]:
     """Convert a raw C++ level result dict into the appropriate Python wrapper."""
@@ -612,13 +655,23 @@ def _wrap_level_result(raw) -> Union[JpegStreamResult, SpriteAtlasResult, DiskRe
             return SpriteAtlasResult(
                 blob=np.array([], dtype=np.uint8),
                 offsets=np.array([], dtype=np.int64),
-                grid_w=0, grid_h=0, thumb_w=0, thumb_h=0, file_count=0)
+                grid_w=0,
+                grid_h=0,
+                thumb_w=0,
+                thumb_h=0,
+                file_count=0,
+            )
         elif not raw.get("in_memory", True):
-            return DiskResult(cache_path="", frame_count=0, total_bytes=0,
-                              metadata=np.empty((0, 3), dtype=np.int64))
+            return DiskResult(
+                cache_path="",
+                frame_count=0,
+                total_bytes=0,
+                metadata=np.empty((0, 3), dtype=np.int64),
+            )
         else:
-            return JpegStreamResult(blobs=[], offsets=[],
-                                    metadata=np.empty((0, 3), dtype=np.int64))
+            return JpegStreamResult(
+                blobs=[], offsets=[], metadata=np.empty((0, 3), dtype=np.int64)
+            )
 
 
 def _wrap_metrics(raw) -> DecodeMetrics:
@@ -631,6 +684,7 @@ def _wrap_metrics(raw) -> DecodeMetrics:
 # ---------------------------------------------------------------------------
 # Synchronous batch decode
 # ---------------------------------------------------------------------------
+
 
 def batch_decode(
     paths: List[str],
@@ -713,8 +767,13 @@ def batch_decode(
 
     native_levels = _to_native_levels(_vex_core, levels)
     raw_results, raw_metrics = _vex_core.batch_decode(
-        list(paths), native_levels, max_threads, keyframes_only, frame_skip,
-        use_hw_accel)
+        list(paths),
+        native_levels,
+        max_threads,
+        keyframes_only,
+        frame_skip,
+        use_hw_accel,
+    )
 
     level_results = [_wrap_level_result(r) for r in raw_results]
     metrics = _wrap_metrics(raw_metrics)
@@ -725,6 +784,7 @@ def batch_decode(
 # ---------------------------------------------------------------------------
 # Asynchronous batch decode
 # ---------------------------------------------------------------------------
+
 
 class DecodeHandle:
     """Handle for an in-progress asynchronous decode operation.
@@ -809,8 +869,13 @@ def batch_decode_async(
 
     native_levels = _to_native_levels(_vex_core, levels)
     native_handle = _vex_core.batch_decode_async(
-        list(paths), native_levels, max_threads, keyframes_only, frame_skip,
-        use_hw_accel)
+        list(paths),
+        native_levels,
+        max_threads,
+        keyframes_only,
+        frame_skip,
+        use_hw_accel,
+    )
 
     return DecodeHandle(native_handle)
 

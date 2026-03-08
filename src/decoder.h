@@ -54,36 +54,36 @@ public:
 
     // ── Accessors ──────────────────────────────────────────────────────────
 
-    int         video_stream_index() const { return video_idx_; }
-    int         source_width()       const { return width_; }
-    int         source_height()      const { return height_; }
-    std::string codec_name()         const { return codec_name_; }
-    int64_t     file_size()          const { return file_size_; }
+    int video_stream_index() const { return video_idx_; }
+    int source_width() const { return width_; }
+    int source_height() const { return height_; }
+    std::string codec_name() const { return codec_name_; }
+    int64_t file_size() const { return file_size_; }
 
 private:
     // Shared post-decode processing: HW transfer + pixel format conversion.
     bool finalize_frame(AVFrame* decode_target, AVFrame* out_frame);
 
-    AVFormatContext* fmt_ctx_   = nullptr;
-    AVCodecContext*  codec_ctx_ = nullptr;
-    AVFrame*         hw_frame_  = nullptr;   // scratch frame for HW decode
-    AVPacket*        pkt_       = nullptr;   // reusable packet for decode_next
-    HWAccelContext*  hw_accel_  = nullptr;
-    int              video_idx_ = -1;
-    int              width_     = 0;
-    int              height_    = 0;
-    int64_t          file_size_ = 0;
-    std::string      codec_name_;
-    AVCodecID        codec_id_  = AV_CODEC_ID_NONE;
-    bool             valid_     = false;
+    AVFormatContext* fmt_ctx_ = nullptr;
+    AVCodecContext* codec_ctx_ = nullptr;
+    AVFrame* hw_frame_ = nullptr;  // scratch frame for HW decode
+    AVPacket* pkt_ = nullptr;      // reusable packet for decode_next
+    HWAccelContext* hw_accel_ = nullptr;
+    int video_idx_ = -1;
+    int width_ = 0;
+    int height_ = 0;
+    int64_t file_size_ = 0;
+    std::string codec_name_;
+    AVCodecID codec_id_ = AV_CODEC_ID_NONE;
+    bool valid_ = false;
 
     // Cached pixel-format conversion context (Stage 1: avoids per-frame alloc).
     // Used when HW decode produces NV12 or other non-YUV420P output.
-    SwsContext*      convert_ctx_     = nullptr;
-    AVFrame*         convert_frame_   = nullptr;
-    int              convert_src_fmt_ = AV_PIX_FMT_NONE;
-    int              convert_src_w_   = 0;
-    int              convert_src_h_   = 0;
+    SwsContext* convert_ctx_ = nullptr;
+    AVFrame* convert_frame_ = nullptr;
+    int convert_src_fmt_ = AV_PIX_FMT_NONE;
+    int convert_src_w_ = 0;
+    int convert_src_h_ = 0;
 };
 
-} // namespace vex
+}  // namespace vex

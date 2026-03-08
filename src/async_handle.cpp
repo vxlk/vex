@@ -7,9 +7,7 @@ namespace vex {
 // ── Constructor ─────────────────────────────────────────────────────────────
 
 DecodeHandle::DecodeHandle(int num_threads, int total_files)
-    : num_threads_(num_threads)
-    , total_files_(total_files)
-{
+    : num_threads_(num_threads), total_files_(total_files) {
     thread_events_.resize(static_cast<size_t>(num_threads));
     drain_cursors_.resize(static_cast<size_t>(num_threads), 0);
     file_blobs_.resize(static_cast<size_t>(total_files), nullptr);
@@ -53,8 +51,7 @@ std::vector<FrameEvent> DecodeHandle::drain_events() {
         int cursor = drain_cursors_[static_cast<size_t>(i)];
 
         if (published > cursor) {
-            collected.insert(collected.end(),
-                             te.events.begin() + cursor,
+            collected.insert(collected.end(), te.events.begin() + cursor,
                              te.events.begin() + published);
             drain_cursors_[static_cast<size_t>(i)] = published;
         }
@@ -66,8 +63,8 @@ std::vector<FrameEvent> DecodeHandle::drain_events() {
 DecodeHandle::Progress DecodeHandle::progress() const {
     Progress p{};
     p.keyframes_decoded = keyframes_decoded_.load(std::memory_order_relaxed);
-    p.files_completed   = files_completed_.load(std::memory_order_relaxed);
-    p.total_files       = total_files_;
+    p.files_completed = files_completed_.load(std::memory_order_relaxed);
+    p.total_files = total_files_;
     return p;
 }
 
@@ -75,10 +72,12 @@ const uint8_t* DecodeHandle::peek_jpeg_data(const FrameEvent& evt, size_t* out_s
     std::lock_guard<std::mutex> lock(blobs_mutex_);
     const uint8_t* blob = file_blobs_[static_cast<size_t>(evt.file_index)];
     if (!blob) {
-        if (out_size) *out_size = 0;
+        if (out_size)
+            *out_size = 0;
         return nullptr;
     }
-    if (out_size) *out_size = evt.jpeg_size;
+    if (out_size)
+        *out_size = evt.jpeg_size;
     return blob + evt.blob_offset;
 }
 
@@ -93,7 +92,7 @@ void DecodeHandle::set_results(std::vector<LevelResult> results, DecodeMetrics m
 }
 
 std::pair<std::vector<LevelResult>, DecodeMetrics> DecodeHandle::get_results() {
-    return { std::move(results_), std::move(metrics_) };
+    return {std::move(results_), std::move(metrics_)};
 }
 
-} // namespace vex
+}  // namespace vex

@@ -1,15 +1,19 @@
 """Zero-copy numpy access — extract JPEGs via index array, decode with Pillow."""
 
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'python'))
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
+
+import io
 
 import numpy as np
 from PIL import Image
-import io
+from vex import LevelConfig, batch_decode
 
-from vex import batch_decode, LevelConfig
-
-VIDEO = os.path.join(os.path.dirname(__file__), '..', 'fixtures', 'formats', 'h264_mp4.mp4')
+VIDEO = os.path.join(
+    os.path.dirname(__file__), "..", "fixtures", "formats", "h264_mp4.mp4"
+)
 
 result = batch_decode(
     paths=[VIDEO],
@@ -25,11 +29,13 @@ stream = result.jpeg_stream()
 # directly by the C++ malloc'd buffer via pybind11 capsule.  No Python-side
 # copy occurs — numpy owns a view into the same memory.
 
-jpeg_data: np.ndarray = stream.blobs[0]   # shape (N,), dtype uint8
+jpeg_data: np.ndarray = stream.blobs[0]  # shape (N,), dtype uint8
 assert jpeg_data.dtype == np.uint8
 assert jpeg_data.base is not None, "expected zero-copy view into C++ memory"
-print(f"JPEG blob: {jpeg_data.shape[0]:,} bytes, dtype {jpeg_data.dtype}, "
-      f"owns_data={jpeg_data.flags.owndata}")
+print(
+    f"JPEG blob: {jpeg_data.shape[0]:,} bytes, dtype {jpeg_data.dtype}, "
+    f"owns_data={jpeg_data.flags.owndata}"
+)
 
 # ---------------------------------------------------------------------------
 # Offset indices — int64 from C++ (zero-copy), int32 requires one cast-copy
@@ -59,8 +65,9 @@ for i in range(n_frames):
     frame_view: np.ndarray = jpeg_data[start:end]
 
     # Verify the slice is a view (shares memory), not a copy
-    assert frame_view.base is jpeg_data or frame_view.base is jpeg_data.base, \
+    assert frame_view.base is jpeg_data or frame_view.base is jpeg_data.base, (
         "slice should be a zero-copy view"
+    )
 
     # Decode JPEG with Pillow — Pillow reads from the buffer and decompresses.
     # BytesIO copies the bytes into its internal buffer (unavoidable for the
@@ -68,8 +75,10 @@ for i in range(n_frames):
     img = Image.open(io.BytesIO(frame_view))
     img.load()  # force decode
 
-    print(f"  Frame {i}: offset {start:>8,}  size {end - start:>7,} bytes  "
-          f"-> {img.size[0]}x{img.size[1]} {img.mode}")
+    print(
+        f"  Frame {i}: offset {start:>8,}  size {end - start:>7,} bytes  "
+        f"-> {img.size[0]}x{img.size[1]} {img.mode}"
+    )
 
 # ---------------------------------------------------------------------------
 # Bulk: build a pixels array from all frames
@@ -83,7 +92,8 @@ for i in range(n_frames):
 
 if images:
     pixels = np.stack(images)  # shape (N, H, W, 3), dtype uint8
-    print(f"\nPixel array: shape {pixels.shape}, dtype {pixels.dtype}, "
-          f"{pixels.nbytes / 1024:.1f} KB")
+    print(
+        f"\nPixel array: shape {pixels.shape}, dtype {pixels.dtype}, {pixels.nbytes / 1024:.1f} KB"
+    )
 
 print("\nDone — all assertions passed, zero-copy blob access verified.")

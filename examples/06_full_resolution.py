@@ -4,16 +4,22 @@ The default LevelConfig uses width=NATIVE, height=NATIVE, quality=100
 so the output matches the source resolution with no scaling step at all.
 """
 
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'python'))
+import os
+import sys
 
-from vex import batch_decode, LevelConfig
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
+
+from vex import LevelConfig, batch_decode
 
 # Output goes to output/06_full_resolution/
-OUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'example_output', '06_full_resolution')
+OUT_DIR = os.path.join(
+    os.path.dirname(__file__), "..", "example_output", "06_full_resolution"
+)
 os.makedirs(OUT_DIR, exist_ok=True)
 
-VIDEO = os.path.join(os.path.dirname(__file__), '..', 'fixtures', 'resolutions', '1280x720.mp4')
+VIDEO = os.path.join(
+    os.path.dirname(__file__), "..", "fixtures", "resolutions", "1280x720.mp4"
+)
 
 print("Extracting full-resolution keyframes...")
 
@@ -24,7 +30,9 @@ results, metrics = batch_decode(
 )
 
 stream = results[0]
-print(f"Decoded {metrics.keyframes_decoded} keyframes in {metrics.total_wall_us / 1000:.1f} ms")
+print(
+    f"Decoded {metrics.keyframes_decoded} keyframes in {metrics.total_wall_us / 1000:.1f} ms"
+)
 
 if metrics.levels:
     lm = metrics.levels[0]

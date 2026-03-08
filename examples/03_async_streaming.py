@@ -1,12 +1,19 @@
 """Async streaming — process thumbnails as they arrive during decode."""
 
-import sys, os, time
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'python'))
+import os
+import sys
+import time
 
-from vex import batch_decode_async, LevelConfig
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
 
-FIXTURES = os.path.join(os.path.dirname(__file__), '..', 'fixtures', 'formats')
-videos = [os.path.join(FIXTURES, f) for f in os.listdir(FIXTURES) if f.endswith(('.mp4', '.mkv', '.avi', '.ts', '.flv'))]
+from vex import LevelConfig, batch_decode_async
+
+FIXTURES = os.path.join(os.path.dirname(__file__), "..", "fixtures", "formats")
+videos = [
+    os.path.join(FIXTURES, f)
+    for f in os.listdir(FIXTURES)
+    if f.endswith((".mp4", ".mkv", ".avi", ".ts", ".flv"))
+]
 
 print(f"Starting async decode of {len(videos)} files...")
 
@@ -24,14 +31,19 @@ while not handle.done:
         for evt in events:
             jpeg_data = handle.peek_jpeg(evt)
             # In a real app, you'd paint this to a canvas
-            print(f"  [stream] file={evt['file_index']}, frame={evt['frame_index']}, "
-                  f"size={len(jpeg_data)} bytes")
+            print(
+                f"  [stream] file={evt['file_index']}, frame={evt['frame_index']}, "
+                f"size={len(jpeg_data)} bytes"
+            )
     else:
         time.sleep(0.001)  # brief sleep to avoid busy-wait
 
     p = handle.progress
-    print(f"  Progress: {p['files_completed']}/{p['total_files']} files, "
-          f"{p['keyframes_decoded']} keyframes", end='\r')
+    print(
+        f"  Progress: {p['files_completed']}/{p['total_files']} files, "
+        f"{p['keyframes_decoded']} keyframes",
+        end="\r",
+    )
 
 # Finalize
 results, metrics = handle.result()

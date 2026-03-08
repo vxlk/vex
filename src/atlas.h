@@ -16,9 +16,8 @@ public:
 
     // Store a thumbnail at grid position (time_step, file_index).
     // Thread-safe for distinct (time_step, file_index) pairs.
-    void add_thumbnail(int time_step, int file_index,
-                       const uint8_t* y, const uint8_t* u, const uint8_t* v,
-                       int y_stride, int uv_stride);
+    void add_thumbnail(int time_step, int file_index, const uint8_t* y, const uint8_t* u,
+                       const uint8_t* v, int y_stride, int uv_stride);
 
     // Composite all time steps into a SpriteAtlasResult. Single-threaded.
     SpriteAtlasResult compose_all();
@@ -44,4 +43,4 @@ private:
     void init_time_step(TimeStep& ts);
 };
 
-} // namespace vex
+}  // namespace vex

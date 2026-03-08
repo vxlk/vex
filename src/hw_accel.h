@@ -14,9 +14,9 @@ extern "C" {
 namespace vex {
 
 struct HWAccelContext {
-    AVBufferRef*   device_ctx  = nullptr;
+    AVBufferRef* device_ctx = nullptr;
     AVHWDeviceType device_type = AV_HWDEVICE_TYPE_NONE;
-    AVPixelFormat  hw_pix_fmt  = AV_PIX_FMT_NONE;
+    AVPixelFormat hw_pix_fmt = AV_PIX_FMT_NONE;
 };
 
 // Try NVDEC → QSV → D3D11VA → VAAPI in order. Returns nullopt if all fail.
@@ -45,4 +45,4 @@ bool can_hw_decode(AVHWDeviceType device_type, AVCodecID codec_id);
 // codec (e.g. "h264_cuvid"), or nullptr if none exists.
 const char* get_cuvid_decoder_name(AVCodecID codec_id);
 
-} // namespace vex
+}  // namespace vex

@@ -1,16 +1,22 @@
 """Basic single-file decode — extract keyframe thumbnails as JPEGs."""
 
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'python'))
+import os
+import sys
 
-from vex import batch_decode, LevelConfig
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
+
+from vex import LevelConfig, batch_decode
 
 # Output goes to output/01_basic_decode/
-OUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'example_output', '01_basic_decode')
+OUT_DIR = os.path.join(
+    os.path.dirname(__file__), "..", "example_output", "01_basic_decode"
+)
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # Decode keyframe thumbnails from a single video file
-VIDEO = os.path.join(os.path.dirname(__file__), '..', 'fixtures', 'formats', 'h264_mp4.mp4')
+VIDEO = os.path.join(
+    os.path.dirname(__file__), "..", "fixtures", "formats", "h264_mp4.mp4"
+)
 
 result = batch_decode(
     paths=[VIDEO],
@@ -20,7 +26,9 @@ result = batch_decode(
 # Typed accessor — returns JpegStreamResult directly (no isinstance needed)
 stream = result.jpeg_stream()
 
-print(f"Decoded {result.metrics.keyframes_decoded} keyframes in {result.metrics.total_wall_us / 1000:.1f} ms")
+print(
+    f"Decoded {result.metrics.keyframes_decoded} keyframes in {result.metrics.total_wall_us / 1000:.1f} ms"
+)
 print(f"Pipeline throughput: {result.metrics.pipeline_fps:.0f} frames/sec")
 print(f"Threads used: {result.metrics.threads_used}")
 print()

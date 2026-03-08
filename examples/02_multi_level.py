@@ -1,16 +1,24 @@
 """Multi-level decode — produce a sprite atlas and a JPEG stream in one pass."""
 
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'python'))
+import os
+import sys
 
-from vex import batch_decode, LevelConfig
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
+
+from vex import LevelConfig, batch_decode
 
 # Output goes to output/02_multi_level/
-OUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'example_output', '02_multi_level')
+OUT_DIR = os.path.join(
+    os.path.dirname(__file__), "..", "example_output", "02_multi_level"
+)
 os.makedirs(OUT_DIR, exist_ok=True)
 
-FIXTURES = os.path.join(os.path.dirname(__file__), '..', 'fixtures', 'formats')
-videos = [os.path.join(FIXTURES, f) for f in os.listdir(FIXTURES) if f.endswith(('.mp4', '.mkv', '.avi'))]
+FIXTURES = os.path.join(os.path.dirname(__file__), "..", "fixtures", "formats")
+videos = [
+    os.path.join(FIXTURES, f)
+    for f in os.listdir(FIXTURES)
+    if f.endswith((".mp4", ".mkv", ".avi"))
+]
 
 print(f"Processing {len(videos)} video files...")
 
@@ -31,7 +39,9 @@ print()
 # Level 0 — typed accessor returns SpriteAtlasResult directly
 atlas = result.sprite_atlas(0)
 print(f"Sprite atlas: {atlas}")
-print(f"  Grid: {atlas.grid_w}x{atlas.grid_h} ({atlas.thumb_w}x{atlas.thumb_h} px per thumb)")
+print(
+    f"  Grid: {atlas.grid_w}x{atlas.grid_h} ({atlas.thumb_w}x{atlas.thumb_h} px per thumb)"
+)
 n_atlases = len(atlas.offsets) - 1
 print(f"  Time steps: {n_atlases}")
 
