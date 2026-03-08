@@ -72,6 +72,22 @@ results = vex.batch_decode(
 )
 ```
 
+## Install
+
+```bash
+# Full setup — creates venv, builds C++ extension, installs vex + test deps:
+./dev.sh install
+
+# Then activate the venv:
+source .venv/Scripts/activate   # Windows
+source .venv/bin/activate       # Linux/Mac
+
+# Install additional extras as needed:
+pip install -e .[examples]      # + Pillow (for examples/)
+pip install -e .[bench]         # + matplotlib (for benchmarks)
+pip install -e .[examples,test,bench]  # everything
+```
+
 ## Requirements
 
 - Windows 10+, MSVC 2022, C++17

@@ -20,6 +20,10 @@ setup(
         "numpy",
     ],
     extras_require={
+        "examples": [
+            "numpy",
+            "Pillow",
+        ],
         "test": [
             "pytest",
             "Pillow",
