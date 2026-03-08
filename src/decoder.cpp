@@ -90,7 +90,10 @@ FileDecoder::FileDecoder(const std::string& path, HWAccelContext* hw) {
         return;
     }
 
-    // Step 9: Store codec name, mark valid
+    // Step 9: Allocate reusable packet for decode_next
+    pkt_ = av_packet_alloc();
+
+    // Step 10: Store codec name, mark valid
     codec_name_ = codec->name;
     valid_ = true;
 }
@@ -98,6 +101,9 @@ FileDecoder::FileDecoder(const std::string& path, HWAccelContext* hw) {
 // ── Destructor ──────────────────────────────────────────────────────────────
 
 FileDecoder::~FileDecoder() {
+    if (pkt_) {
+        av_packet_free(&pkt_);
+    }
     if (hw_frame_) {
         av_frame_free(&hw_frame_);
     }
@@ -114,6 +120,55 @@ FileDecoder::~FileDecoder() {
 
 KeyframeIndex FileDecoder::scan_keyframes() {
     return vex::scan_keyframes(fmt_ctx_, video_idx_);
+}
+
+// ── finalize_frame (shared HW transfer + pixel format conversion) ───────────
+
+bool FileDecoder::finalize_frame(AVFrame* decode_target, AVFrame* out_frame) {
+    // HW transfer if needed. Some codecs fall back to software even when
+    // HW context is set, so check hw_frames_ctx to confirm it's truly a HW frame.
+    if (hw_accel_ && hw_frame_ && decode_target == hw_frame_) {
+        if (decode_target->hw_frames_ctx) {
+            if (!transfer_hw_frame(hw_frame_, out_frame)) {
+                av_frame_unref(hw_frame_);
+                return false;
+            }
+        } else {
+            // Codec produced a SW frame despite HW setup — just move it
+            av_frame_move_ref(out_frame, hw_frame_);
+        }
+        av_frame_unref(hw_frame_);
+    } else if (decode_target != out_frame) {
+        av_frame_move_ref(out_frame, decode_target);
+    }
+
+    // Convert non-YUV420P frames (e.g. NV12 from HW decode)
+    if (out_frame->format != AV_PIX_FMT_YUV420P &&
+        out_frame->format != AV_PIX_FMT_YUVJ420P) {
+        SwsContext* conv = sws_getContext(
+            out_frame->width, out_frame->height,
+            static_cast<AVPixelFormat>(out_frame->format),
+            out_frame->width, out_frame->height,
+            AV_PIX_FMT_YUV420P,
+            SWS_BILINEAR, nullptr, nullptr, nullptr);
+        if (!conv) {
+            av_frame_unref(out_frame);
+            return false;
+        }
+        AVFrame* tmp = av_frame_alloc();
+        tmp->format = AV_PIX_FMT_YUV420P;
+        tmp->width  = out_frame->width;
+        tmp->height = out_frame->height;
+        av_frame_get_buffer(tmp, 0);
+        sws_scale(conv, out_frame->data, out_frame->linesize,
+                  0, out_frame->height, tmp->data, tmp->linesize);
+        sws_freeContext(conv);
+        av_frame_unref(out_frame);
+        av_frame_move_ref(out_frame, tmp);
+        av_frame_free(&tmp);
+    }
+
+    return true;
 }
 
 // ── seek_and_decode ─────────────────────────────────────────────────────────
@@ -145,9 +200,6 @@ bool FileDecoder::seek_and_decode(const KeyframeInfo& kf, AVFrame* out_frame) {
         return false;
     }
 
-    // Decide which frame receives the decoded output:
-    // If HW accel is active, decode into hw_frame_ then transfer.
-    // Otherwise, decode directly into out_frame.
     AVFrame* decode_target = (hw_accel_ && hw_frame_) ? hw_frame_ : out_frame;
 
     bool got_frame = false;
@@ -169,7 +221,6 @@ bool FileDecoder::seek_and_decode(const KeyframeInfo& kf, AVFrame* out_frame) {
             got_frame = true;
             break;
         }
-        // EAGAIN: need more packets; other errors: keep trying
     }
 
     av_packet_free(&pkt);
@@ -178,45 +229,115 @@ bool FileDecoder::seek_and_decode(const KeyframeInfo& kf, AVFrame* out_frame) {
         return false;
     }
 
-    // Step 4: HW transfer if needed
-    if (hw_accel_ && hw_frame_) {
-        if (!transfer_hw_frame(hw_frame_, out_frame)) {
-            av_frame_unref(hw_frame_);
-            return false;
-        }
-        av_frame_unref(hw_frame_);
-    } else if (decode_target != out_frame) {
-        // Shouldn't happen, but handle defensively
-        av_frame_move_ref(out_frame, decode_target);
+    return finalize_frame(decode_target, out_frame);
+}
+
+// ── Sequential decode API ───────────────────────────────────────────────────
+
+bool FileDecoder::seek_to_start() {
+    if (!valid_ || !fmt_ctx_ || !codec_ctx_) return false;
+
+    // Try multiple seek strategies. Some containers (SWF, GXF) don't
+    // support standard seeking.
+    int ret = avformat_seek_file(fmt_ctx_, video_idx_,
+                                  INT64_MIN, 0, 0, 0);
+    if (ret < 0) {
+        ret = av_seek_frame(fmt_ctx_, video_idx_, 0, AVSEEK_FLAG_BACKWARD);
+    }
+    if (ret < 0) {
+        // Byte-level seek as last resort — some containers need this
+        ret = av_seek_frame(fmt_ctx_, -1, 0,
+                            AVSEEK_FLAG_BYTE | AVSEEK_FLAG_BACKWARD);
     }
 
-    // Step 5: Convert non-YUV420P frames (e.g. NV12 from HW decode)
-    if (out_frame->format != AV_PIX_FMT_YUV420P &&
-        out_frame->format != AV_PIX_FMT_YUVJ420P) {
-        SwsContext* conv = sws_getContext(
-            out_frame->width, out_frame->height,
-            static_cast<AVPixelFormat>(out_frame->format),
-            out_frame->width, out_frame->height,
-            AV_PIX_FMT_YUV420P,
-            SWS_BILINEAR, nullptr, nullptr, nullptr);
-        if (!conv) {
-            av_frame_unref(out_frame);
-            return false;
-        }
-        AVFrame* tmp = av_frame_alloc();
-        tmp->format = AV_PIX_FMT_YUV420P;
-        tmp->width  = out_frame->width;
-        tmp->height = out_frame->height;
-        av_frame_get_buffer(tmp, 0);
-        sws_scale(conv, out_frame->data, out_frame->linesize,
-                  0, out_frame->height, tmp->data, tmp->linesize);
-        sws_freeContext(conv);
-        av_frame_unref(out_frame);
-        av_frame_move_ref(out_frame, tmp);
-        av_frame_free(&tmp);
-    }
-
+    avcodec_flush_buffers(codec_ctx_);
+    // Return true even if seeking failed — decode_next() will try to read
+    // from the current position (works for forward-only containers).
     return true;
+}
+
+bool FileDecoder::decode_next(AVFrame* out_frame) {
+    if (!valid_ || !fmt_ctx_ || !codec_ctx_ || !pkt_) return false;
+
+    AVFrame* decode_target = (hw_accel_ && hw_frame_) ? hw_frame_ : out_frame;
+
+    // Try to receive a frame from already-sent packets first
+    int ret = avcodec_receive_frame(codec_ctx_, decode_target);
+    if (ret == 0) {
+        return finalize_frame(decode_target, out_frame);
+    }
+
+    // Feed packets until we get a frame or hit EOF
+    while (av_read_frame(fmt_ctx_, pkt_) >= 0) {
+        if (pkt_->stream_index != video_idx_) {
+            av_packet_unref(pkt_);
+            continue;
+        }
+
+        ret = avcodec_send_packet(codec_ctx_, pkt_);
+        av_packet_unref(pkt_);
+
+        if (ret < 0 && ret != AVERROR(EAGAIN)) {
+            continue;
+        }
+
+        ret = avcodec_receive_frame(codec_ctx_, decode_target);
+        if (ret == 0) {
+            return finalize_frame(decode_target, out_frame);
+        }
+        // EAGAIN: need more packets
+    }
+
+    // EOF: drain the decoder
+    avcodec_send_packet(codec_ctx_, nullptr);
+    ret = avcodec_receive_frame(codec_ctx_, decode_target);
+    if (ret == 0) {
+        return finalize_frame(decode_target, out_frame);
+    }
+
+    return false;
+}
+
+int FileDecoder::estimated_frame_count() const {
+    if (!valid_ || !fmt_ctx_) return 0;
+
+    AVStream* stream = fmt_ctx_->streams[video_idx_];
+
+    // Try nb_frames first
+    if (stream->nb_frames > 0) {
+        return static_cast<int>(stream->nb_frames);
+    }
+
+    // Fallback: duration * avg_frame_rate
+    if (stream->duration > 0 && stream->avg_frame_rate.den > 0) {
+        double dur_sec = stream->duration * av_q2d(stream->time_base);
+        double fps = av_q2d(stream->avg_frame_rate);
+        if (fps > 0) {
+            return static_cast<int>(dur_sec * fps);
+        }
+    }
+
+    // Container-level duration fallback
+    if (fmt_ctx_->duration > 0 && stream->avg_frame_rate.den > 0) {
+        double dur_sec = fmt_ctx_->duration / static_cast<double>(AV_TIME_BASE);
+        double fps = av_q2d(stream->avg_frame_rate);
+        if (fps > 0) {
+            return static_cast<int>(dur_sec * fps);
+        }
+    }
+
+    return 300; // conservative fallback
+}
+
+int64_t FileDecoder::frame_pts_ms(const AVFrame* frame) const {
+    if (!valid_ || !fmt_ctx_ || !frame) return 0;
+
+    AVStream* stream = fmt_ctx_->streams[video_idx_];
+    int64_t pts = frame->pts;
+    if (pts == AV_NOPTS_VALUE) pts = frame->best_effort_timestamp;
+    if (pts == AV_NOPTS_VALUE) return 0;
+
+    return av_rescale_q(pts, stream->time_base, {1, 1000});
 }
 
 } // namespace vex

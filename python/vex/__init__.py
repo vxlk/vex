@@ -580,14 +580,16 @@ def batch_decode(
     levels: Optional[List[LevelConfig]] = None,
     *,
     max_threads: int = 8,
-    keyframes_only: bool = True,
+    keyframes_only: bool = False,
     frame_skip: int = 1,
 ) -> BatchResult:
-    """Decode keyframe thumbnails from one or more video files.
+    """Decode video frames from one or more video files.
 
-    Decodes each file's keyframes, scales to the requested resolution(s),
-    and JPEG-encodes the results.  The entire pipeline runs in C++ with
-    the GIL released.
+    By default, decodes every frame sequentially.  Set
+    ``keyframes_only=True`` to decode only I-frames (faster, fewer
+    thumbnails).
+
+    The entire pipeline runs in C++ with the GIL released.
 
     Args:
         paths:  List of video file paths (mp4, mkv, avi, ts, flv, ...).
@@ -597,7 +599,7 @@ def batch_decode(
                 multiple output resolutions from a single decode pass.
         max_threads:    Maximum worker threads.  Clamped to
                         ``min(max_threads, len(paths), cpu_count)``.
-        keyframes_only: If ``True`` (default), only I-frames are decoded.
+        keyframes_only: If ``True``, only I-frames are decoded.
         frame_skip:     Decode every *N*-th frame.  Only used when
                         ``keyframes_only=False``.
 
@@ -725,7 +727,7 @@ def batch_decode_async(
     levels: Optional[List[LevelConfig]] = None,
     *,
     max_threads: int = 8,
-    keyframes_only: bool = True,
+    keyframes_only: bool = False,
     frame_skip: int = 1,
 ) -> DecodeHandle:
     """Start an asynchronous batch decode operation.

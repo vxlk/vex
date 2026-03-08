@@ -166,13 +166,13 @@ _FORMAT_FIXTURES = _discover_format_fixtures()
 
 @needs_native
 @pytest.mark.skipif(not _FORMAT_FIXTURES, reason="no format fixtures found")
-class TestContainerFormats:
-    """Verify vex can decode every container format in the fixtures."""
+class TestKeyframeDecode:
+    """Verify keyframe-only decode works for every container format."""
 
     @pytest.mark.parametrize("filename", _FORMAT_FIXTURES)
-    def test_decode_container(self, filename):
+    def test_keyframe_decode(self, filename):
         path = _fixture_path("formats", filename)
-        results, metrics = batch_decode([path])
+        results, metrics = batch_decode([path], keyframes_only=True)
 
         assert metrics.files_processed == 1
         assert metrics.keyframes_decoded > 0
@@ -181,7 +181,46 @@ class TestContainerFormats:
         from vex import JpegStreamResult
         assert isinstance(results[0], JpegStreamResult)
         assert len(results[0].blobs) == 1
-        assert len(results[0].blobs[0]) > 0  # at least one JPEG thumbnail
+        assert len(results[0].blobs[0]) > 0
+
+
+@needs_native
+@pytest.mark.skipif(not _FORMAT_FIXTURES, reason="no format fixtures found")
+class TestSequentialDecode:
+    """Verify sequential (every-frame) decode works for every container format."""
+
+    @pytest.mark.parametrize("filename", _FORMAT_FIXTURES)
+    def test_sequential_decode(self, filename):
+        path = _fixture_path("formats", filename)
+        results, metrics = batch_decode([path], keyframes_only=False)
+
+        assert metrics.files_processed == 1
+        assert metrics.keyframes_decoded > 0
+        assert len(results) == 1
+
+        from vex import JpegStreamResult
+        assert isinstance(results[0], JpegStreamResult)
+        assert len(results[0].blobs) == 1
+        assert len(results[0].blobs[0]) > 0
+
+    @pytest.mark.parametrize("filename", _FORMAT_FIXTURES)
+    def test_sequential_decodes_more_than_keyframes(self, filename):
+        """Sequential decode should produce >= as many frames as keyframe-only."""
+        path = _fixture_path("formats", filename)
+        _, kf_metrics = batch_decode([path], keyframes_only=True)
+        _, seq_metrics = batch_decode([path], keyframes_only=False)
+
+        assert seq_metrics.keyframes_decoded >= kf_metrics.keyframes_decoded
+
+    @pytest.mark.parametrize("filename", _FORMAT_FIXTURES)
+    def test_frame_skip(self, filename):
+        """frame_skip=2 should produce roughly half the frames of skip=1."""
+        path = _fixture_path("formats", filename)
+        _, all_metrics = batch_decode([path], keyframes_only=False, frame_skip=1)
+        _, skip_metrics = batch_decode([path], keyframes_only=False, frame_skip=2)
+
+        assert skip_metrics.keyframes_decoded <= all_metrics.keyframes_decoded
+        assert skip_metrics.keyframes_decoded > 0
 
 
 @needs_native

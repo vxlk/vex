@@ -41,7 +41,7 @@ struct BatchConfig {
     std::vector<std::string> paths;
     std::vector<LevelConfig> levels;
     int max_threads     = 8;
-    bool keyframes_only = true;
+    bool keyframes_only = false;
     int frame_skip      = 1;       // ignored if keyframes_only=true
 };
 
@@ -176,10 +176,22 @@ struct FileBlob {
     FileBlob& operator=(const FileBlob&) = delete;
 
     bool allocate(size_t cap) {
+        free(data);
         data = static_cast<uint8_t*>(malloc(cap));
-        if (!data) return false;
+        if (!data) { capacity = 0; size = 0; return false; }
         capacity = cap;
         size = 0;
+        offsets.clear();
+        return true;
+    }
+
+    bool ensure_remaining(size_t needed) {
+        if (size + needed <= capacity) return true;
+        size_t new_cap = std::max(capacity * 2, size + needed);
+        uint8_t* p = static_cast<uint8_t*>(realloc(data, new_cap));
+        if (!p) return false;
+        data = p;
+        capacity = new_cap;
         return true;
     }
 
