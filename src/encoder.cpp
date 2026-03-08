@@ -41,6 +41,13 @@ size_t JpegEncoder::encode(const uint8_t* y, const uint8_t* u, const uint8_t* v,
     unsigned char* jpeg_buf  = output;
     unsigned long  jpeg_size = static_cast<unsigned long>(capacity);
 
+    // Use fast DCT for quality <= 90 where rounding differences are
+    // absorbed by quantization and produce no visible artifacts.
+    int flags = TJFLAG_NOREALLOC;
+    if (quality <= 90) {
+        flags |= TJFLAG_FASTDCT;
+    }
+
     int ret = tjCompressFromYUVPlanes(
         tj_,
         planes,
@@ -51,7 +58,7 @@ size_t JpegEncoder::encode(const uint8_t* y, const uint8_t* u, const uint8_t* v,
         &jpeg_buf,
         &jpeg_size,
         quality,
-        TJFLAG_NOREALLOC);
+        flags);
 
     if (ret != 0) {
         return 0;

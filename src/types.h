@@ -28,9 +28,9 @@ enum class OutputFormat {
 // ── Configuration ──────────────────────────────────────────────────────────
 
 struct LevelConfig {
-    int width           = 192;
-    int height          = 192;
-    int quality         = 85;      // JPEG quality 1–100
+    int width           = 0;      // 0 = NATIVE (source resolution)
+    int height          = 0;      // 0 = NATIVE (source resolution)
+    int quality         = 100;     // JPEG quality 1–100
     OutputFormat output  = OutputFormat::JPEG_STREAM;
     bool in_memory      = true;    // false → write to cache_path on disk
     std::string cache_path;        // required when in_memory=false

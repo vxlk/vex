@@ -11,6 +11,9 @@ DiskWriter::DiskWriter(const std::string& path)
     , current_pos_(0)
 {
     file_ = fopen(path.c_str(), "wb");
+    if (file_) {
+        setvbuf(file_, nullptr, _IOFBF, 262144);  // 256KB write buffer
+    }
 }
 
 // ── Destructor ──────────────────────────────────────────────────────────────

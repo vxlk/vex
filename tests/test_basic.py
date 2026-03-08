@@ -43,9 +43,9 @@ class TestLevelConfig:
 
     def test_level_config_defaults(self):
         cfg = LevelConfig()
-        assert cfg.width == 192
-        assert cfg.height == 192
-        assert cfg.quality == 85
+        assert cfg.width == NATIVE
+        assert cfg.height == NATIVE
+        assert cfg.quality == 100
         assert cfg.output == "jpeg_stream"
         assert cfg.in_memory is True
         assert cfg.cache_path is None
@@ -172,7 +172,11 @@ class TestKeyframeDecode:
     @pytest.mark.parametrize("filename", _FORMAT_FIXTURES)
     def test_keyframe_decode(self, filename):
         path = _fixture_path("formats", filename)
-        results, metrics = batch_decode([path], keyframes_only=True)
+        results, metrics = batch_decode(
+            [path],
+            levels=[LevelConfig(width=192, height=192, quality=85)],
+            keyframes_only=True,
+        )
 
         assert metrics.files_processed == 1
         assert metrics.keyframes_decoded > 0
@@ -192,7 +196,11 @@ class TestSequentialDecode:
     @pytest.mark.parametrize("filename", _FORMAT_FIXTURES)
     def test_sequential_decode(self, filename):
         path = _fixture_path("formats", filename)
-        results, metrics = batch_decode([path], keyframes_only=False)
+        results, metrics = batch_decode(
+            [path],
+            levels=[LevelConfig(width=192, height=192, quality=85)],
+            keyframes_only=False,
+        )
 
         assert metrics.files_processed == 1
         assert metrics.keyframes_decoded > 0

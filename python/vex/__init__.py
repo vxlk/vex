@@ -35,9 +35,9 @@ class LevelConfig:
 
     Args:
         width:   Target width in pixels.  Use ``0`` (or :data:`NATIVE`) to
-                 keep the video's native width.  Defaults to ``192``.
+                 keep the video's native width.  Defaults to ``NATIVE`` (0).
         height:  Target height in pixels.  Use ``0`` (or :data:`NATIVE`) to
-                 keep the video's native height.  Defaults to ``192``.
+                 keep the video's native height.  Defaults to ``NATIVE`` (0).
         quality: JPEG quality, 1 -- 100.  Passed directly to libjpeg-turbo.
                  Rough guide:
 
@@ -49,7 +49,7 @@ class LevelConfig:
                    artifacts.
                  * **1 -- 19**   : very low — only useful for tiny sprites.
 
-                 Defaults to ``85``.
+                 Defaults to ``100``.
         output:  ``"jpeg_stream"`` — one concatenated JPEG blob per source
                  file (random-access via offset table).
                  ``"sprite_atlas"`` — all files composited into a single
@@ -64,9 +64,9 @@ class LevelConfig:
                        Only used when ``output="sprite_atlas"``.
                        Defaults to ``10``.
     """
-    width: int = 192
-    height: int = 192
-    quality: int = 85
+    width: int = NATIVE
+    height: int = NATIVE
+    quality: int = 100
     output: str = "jpeg_stream"
     in_memory: bool = True
     cache_path: Optional[str] = None
@@ -652,9 +652,10 @@ def batch_decode(
     Args:
         paths:  List of video file paths (mp4, mkv, avi, ts, flv, ...).
         levels: One or more :class:`LevelConfig` describing the output
-                resolutions / formats.  Defaults to a single 192 x 192
-                JPEG stream at quality 85.  Multiple levels produce
-                multiple output resolutions from a single decode pass.
+                resolutions / formats.  Defaults to a single
+                native-resolution JPEG stream at quality 100.  Multiple
+                levels produce multiple output resolutions from a single
+                decode pass.
         max_threads:    Maximum worker threads.  Clamped to
                         ``min(max_threads, len(paths), cpu_count)``.
         keyframes_only: If ``True``, only I-frames are decoded.

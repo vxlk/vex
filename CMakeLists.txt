@@ -10,10 +10,11 @@ add_compile_definitions(_CRT_SECURE_NO_WARNINGS NOMINMAX)
 
 # ── MSVC flags ──────────────────────────────────────────────────────────────
 if(MSVC)
-    add_compile_options(/W3 /MP)
-    # /O2 for Release builds (CMake adds this via CMAKE_CXX_FLAGS_RELEASE by default,
-    # but we set it explicitly to be clear)
+    add_compile_options(/W3 /MP /GL)
     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /O2")
+    set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /LTCG")
+    set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE} /LTCG")
+    set(CMAKE_MODULE_LINKER_FLAGS_RELEASE "${CMAKE_MODULE_LINKER_FLAGS_RELEASE} /LTCG")
 endif()
 
 # ── FFmpeg ──────────────────────────────────────────────────────────────────

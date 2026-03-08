@@ -93,6 +93,10 @@ static std::vector<KeyframeInfo> scan_decode(AVFormatContext* fmt_ctx, int strea
         return keyframes;
     }
 
+    // Skip non-reference frames — we only need I-frames, so avoid
+    // fully decoding B-frames (often 60-70% of a typical GOP).
+    codec_ctx->skip_frame = AVDISCARD_NONREF;
+
     if (avcodec_open2(codec_ctx, codec, nullptr) < 0) {
         avcodec_free_context(&codec_ctx);
         return keyframes;

@@ -228,9 +228,9 @@ PYBIND11_MODULE(_vex_core, m) {
             }
             return lc;
         }),
-            py::arg("width")         = 192,
-            py::arg("height")        = 192,
-            py::arg("quality")       = 85,
+            py::arg("width")         = 0,
+            py::arg("height")        = 0,
+            py::arg("quality")       = 100,
             py::arg("output")        = "jpeg_stream",
             py::arg("in_memory")     = true,
             py::arg("cache_path")    = "",
