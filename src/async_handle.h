@@ -1,0 +1,78 @@
+#pragma once
+
+#include "types.h"
+#include <vector>
+#include <atomic>
+#include <mutex>
+#include <condition_variable>
+
+namespace vex {
+
+class DecodeHandle {
+public:
+    DecodeHandle(int num_threads, int total_files);
+
+    // ── Worker API (called from decode threads) ─────────────────────────────
+
+    void publish_event(int thread_id, FrameEvent evt);
+    void increment_keyframes(int count = 1);
+    void increment_files(int count = 1);
+    void set_done();
+    void register_blob(int file_index, const uint8_t* data);
+
+    // ── Consumer API (called from Python / main thread) ─────────────────────
+
+    std::vector<FrameEvent> drain_events();
+
+    bool is_done() const { return done_.load(std::memory_order_acquire); }
+
+    struct Progress {
+        int keyframes_decoded;
+        int files_completed;
+        int total_files;
+    };
+    Progress progress() const;
+
+    // Return a pointer into the file blob for a given event.
+    const uint8_t* peek_jpeg_data(const FrameEvent& evt, size_t* out_size) const;
+
+    void wait_until_done();
+
+    // Called by orchestrator after all work finishes.
+    void set_results(std::vector<LevelResult> results, DecodeMetrics metrics);
+    std::pair<std::vector<LevelResult>, DecodeMetrics> get_results();
+
+private:
+    int num_threads_;
+    int total_files_;
+
+    // Per-thread event storage, cache-line padded.
+    struct alignas(64) ThreadEvents {
+        std::vector<FrameEvent> events;
+        std::atomic<int> published{0};
+        ThreadEvents() = default;
+        ThreadEvents(ThreadEvents&& o) noexcept
+            : events(std::move(o.events))
+            , published(o.published.load(std::memory_order_relaxed)) {}
+    };
+    std::vector<ThreadEvents> thread_events_;
+    std::vector<int> drain_cursors_;
+
+    // Progress
+    std::atomic<int>  keyframes_decoded_{0};
+    std::atomic<int>  files_completed_{0};
+    std::atomic<bool> done_{false};
+
+    std::mutex              done_mutex_;
+    std::condition_variable done_cv_;
+
+    // File blob pointers for peek_jpeg
+    std::vector<const uint8_t*> file_blobs_;
+    mutable std::mutex blobs_mutex_;
+
+    // Final results
+    std::vector<LevelResult> results_;
+    DecodeMetrics            metrics_;
+};
+
+} // namespace vex
