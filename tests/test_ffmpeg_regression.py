@@ -111,37 +111,6 @@ def _ffmpeg_decode_to_jpegs(input_path: str, out_dir: Path,
     return jpegs
 
 
-def _ffmpeg_decode_to_raw_frames(input_path: str, width: int, height: int,
-                                  n_frames: int = 0) -> list[np.ndarray]:
-    """Run FFmpeg to decode a video into raw RGB24 pixel arrays.
-
-    This bypasses JPEG encoding entirely, giving the ground-truth decoded
-    pixels for comparison against vex's JPEG output.
-    """
-    cmd = [
-        str(FFMPEG_BIN),
-        "-hide_banner", "-loglevel", "error",
-        "-i", input_path,
-        "-fps_mode", "passthrough",
-    ]
-    if n_frames > 0:
-        cmd += ["-frames:v", str(n_frames)]
-    cmd += ["-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"]
-
-    proc = subprocess.run(cmd, capture_output=True, timeout=30)
-    if proc.returncode != 0:
-        return []
-
-    frame_bytes = width * height * 3
-    data = proc.stdout
-    n = len(data) // frame_bytes
-    frames = []
-    for i in range(n):
-        arr = np.frombuffer(data[i * frame_bytes:(i + 1) * frame_bytes],
-                            dtype=np.uint8).reshape(height, width, 3)
-        frames.append(arr.astype(np.float64))
-    return frames
-
 
 def _decode_jpeg_to_array(jpeg_bytes: bytes) -> np.ndarray:
     """Decode JPEG bytes to a numpy RGB array via Pillow."""
@@ -199,8 +168,11 @@ class TestFFmpegRegression:
         Both pipelines produce JPEGs of the same decoded frames. The JPEG
         encoders differ (TurboJPEG vs FFmpeg mjpeg), so bytes won't match.
         Both JPEGs are decoded to RGB via Pillow (same color space path)
-        and compared via PSNR. A threshold of 20 dB confirms the pipelines
-        decoded the same frame — a wrong frame would score < 15 dB.
+        and compared via PSNR.
+
+        Empirical baseline: TurboJPEG@q95 vs FFmpeg mjpeg@q2 gives ~24.5 dB
+        minimum across all 42 fixture formats. Threshold set to 23 dB (1.5 dB
+        margin) to catch real quality regressions while avoiding flakiness.
         """
         path = _fixture_path(filename)
 
@@ -222,8 +194,12 @@ class TestFFmpegRegression:
         if n_common == 0:
             pytest.skip("no common frames to compare")
 
-        # Sample up to 3 frames: first, middle, last
-        indices = sorted(set([0, n_common // 2, n_common - 1]))
+        # Sample up to 5 frames evenly spaced across the video
+        if n_common <= 5:
+            indices = list(range(n_common))
+        else:
+            step = (n_common - 1) / 4
+            indices = sorted(set(int(round(step * i)) for i in range(5)))
 
         min_psnr = float("inf")
         for i in indices:
@@ -239,10 +215,65 @@ class TestFFmpegRegression:
             p = _psnr(vex_pixels, ffmpeg_pixels)
             min_psnr = min(min_psnr, p)
 
-        # Typical PSNR is ~24 dB due to TurboJPEG vs FFmpeg mjpeg encoder
-        # differences. 20 dB threshold confirms same-frame content.
-        assert min_psnr > 20.0, (
-            f"{filename}: worst-case PSNR = {min_psnr:.1f} dB (expected > 20)"
+        assert min_psnr > 23.0, (
+            f"{filename}: worst-case PSNR = {min_psnr:.1f} dB (expected > 23)"
+        )
+
+    @needs_pil
+    @pytest.mark.parametrize("filename", _FORMAT_FIXTURES)
+    def test_pixel_content_matches_thumbnail(self, filename, tmp_path):
+        """Scaled 192x192 q85 output matches FFmpeg — exercises FASTDCT path.
+
+        At quality 85, vex uses TJFLAG_FASTDCT for encoding. This test
+        verifies the thumbnail pipeline (scale + FASTDCT encode) produces
+        output consistent with FFmpeg's equivalent pipeline.
+
+        Empirical baseline: ~24.7 dB at 192x192 q85. Threshold 23 dB.
+        """
+        path = _fixture_path(filename)
+
+        # vex: 192x192 thumbnail at q85 (triggers FASTDCT)
+        result = batch_decode(
+            [path],
+            levels=[LevelConfig(width=192, height=192, quality=85)],
+            keyframes_only=False,
+        )
+        stream = result.jpeg_stream()
+        n_vex = len(stream.offsets[0])
+        if n_vex == 0:
+            pytest.skip("no frames decoded")
+
+        # FFmpeg: same scale and quality
+        ffmpeg_jpegs = _ffmpeg_decode_to_jpegs(path, tmp_path,
+                                                width=192, height=192)
+        n_ffmpeg = len(ffmpeg_jpegs)
+        n_common = min(n_vex, n_ffmpeg)
+        if n_common == 0:
+            pytest.skip("no common frames to compare")
+
+        # Sample up to 5 frames
+        if n_common <= 5:
+            indices = list(range(n_common))
+        else:
+            step = (n_common - 1) / 4
+            indices = sorted(set(int(round(step * i)) for i in range(5)))
+
+        min_psnr = float("inf")
+        for i in indices:
+            vex_pixels = _decode_jpeg_to_array(stream.jpeg_bytes(0, i))
+            ffmpeg_pixels = _decode_jpeg_to_array(ffmpeg_jpegs[i].read_bytes())
+
+            if vex_pixels.shape != ffmpeg_pixels.shape:
+                pytest.fail(
+                    f"{filename} frame {i}: shape mismatch — "
+                    f"vex={vex_pixels.shape}, ffmpeg={ffmpeg_pixels.shape}"
+                )
+
+            p = _psnr(vex_pixels, ffmpeg_pixels)
+            min_psnr = min(min_psnr, p)
+
+        assert min_psnr > 23.0, (
+            f"{filename}: worst-case PSNR = {min_psnr:.1f} dB (expected > 23)"
         )
 
 

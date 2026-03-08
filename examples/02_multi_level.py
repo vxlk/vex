@@ -15,8 +15,8 @@ result = batch_decode(
     levels=[
         # Level 0: small sprite atlas for timeline overview
         LevelConfig(width=48, height=48, quality=30, output="sprite_atlas"),
-        # Level 1: medium JPEG stream for detail previews
-        LevelConfig(width=192, height=192, quality=85, output="jpeg_stream"),
+        # Level 1: native-res JPEG stream for detail previews (default)
+        LevelConfig(),
     ],
 )
 

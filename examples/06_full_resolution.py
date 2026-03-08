@@ -1,22 +1,22 @@
 """Full-resolution keyframe extraction — get I-frames at source quality.
 
-Uses width=NATIVE, height=NATIVE so the output matches whatever the
-source resolution is, with no scaling step at all.
+The default LevelConfig uses width=NATIVE, height=NATIVE, quality=100
+so the output matches the source resolution with no scaling step at all.
 """
 
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'python'))
 
-from vex import batch_decode, LevelConfig, NATIVE
+from vex import batch_decode, LevelConfig
 
 VIDEO = os.path.join(os.path.dirname(__file__), '..', 'fixtures', 'resolutions', '1280x720.mp4')
 
 print("Extracting full-resolution keyframes...")
 
-# NATIVE (0) tells vex to use the video's own width/height — no scaling at all.
+# Default LevelConfig: native resolution, quality 100, no scaling.
 results, metrics = batch_decode(
     paths=[VIDEO],
-    levels=[LevelConfig(width=NATIVE, height=NATIVE, quality=95)],
+    levels=[LevelConfig()],
 )
 
 stream = results[0]

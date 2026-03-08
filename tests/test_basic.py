@@ -215,8 +215,9 @@ class TestSequentialDecode:
     def test_sequential_decodes_more_than_keyframes(self, filename):
         """Sequential decode should produce >= as many frames as keyframe-only."""
         path = _fixture_path("formats", filename)
-        _, kf_metrics = batch_decode([path], keyframes_only=True)
-        _, seq_metrics = batch_decode([path], keyframes_only=False)
+        levels = [LevelConfig(width=192, height=192, quality=85)]
+        _, kf_metrics = batch_decode([path], levels=levels, keyframes_only=True)
+        _, seq_metrics = batch_decode([path], levels=levels, keyframes_only=False)
 
         assert seq_metrics.keyframes_decoded >= kf_metrics.keyframes_decoded
 
@@ -224,8 +225,9 @@ class TestSequentialDecode:
     def test_frame_skip(self, filename):
         """frame_skip=2 should produce roughly half the frames of skip=1."""
         path = _fixture_path("formats", filename)
-        _, all_metrics = batch_decode([path], keyframes_only=False, frame_skip=1)
-        _, skip_metrics = batch_decode([path], keyframes_only=False, frame_skip=2)
+        levels = [LevelConfig(width=192, height=192, quality=85)]
+        _, all_metrics = batch_decode([path], levels=levels, keyframes_only=False, frame_skip=1)
+        _, skip_metrics = batch_decode([path], levels=levels, keyframes_only=False, frame_skip=2)
 
         assert skip_metrics.keyframes_decoded <= all_metrics.keyframes_decoded
         assert skip_metrics.keyframes_decoded > 0
@@ -238,7 +240,10 @@ class TestBatchDecode:
 
     def test_batch_decode_single_file(self):
         path = _fixture_path("formats", "h264_mp4.mp4")
-        results, metrics = batch_decode([path])
+        results, metrics = batch_decode(
+            [path],
+            levels=[LevelConfig(width=192, height=192, quality=85)],
+        )
 
         # Should return one level result
         assert len(results) == 1
@@ -284,13 +289,13 @@ class TestBatchResult:
 
     def test_returns_batch_result(self):
         path = _fixture_path("formats", "h264_mp4.mp4")
-        result = batch_decode([path])
+        result = batch_decode([path], levels=[LevelConfig(width=192, height=192, quality=85)])
         assert isinstance(result, BatchResult)
         assert result.metrics.keyframes_decoded > 0
 
     def test_typed_jpeg_stream_accessor(self):
         path = _fixture_path("formats", "h264_mp4.mp4")
-        result = batch_decode([path])
+        result = batch_decode([path], levels=[LevelConfig(width=192, height=192, quality=85)])
         from vex import JpegStreamResult
         stream = result.jpeg_stream()  # level 0 (default)
         assert isinstance(stream, JpegStreamResult)
@@ -312,7 +317,7 @@ class TestBatchResult:
 
     def test_typed_accessor_wrong_type_raises(self):
         path = _fixture_path("formats", "h264_mp4.mp4")
-        result = batch_decode([path])  # default → jpeg_stream
+        result = batch_decode([path], levels=[LevelConfig(width=192, height=192, quality=85)])
         with pytest.raises(TypeError, match="not SpriteAtlasResult"):
             result.sprite_atlas(0)
         with pytest.raises(TypeError, match="not DiskResult"):
@@ -320,13 +325,13 @@ class TestBatchResult:
 
     def test_typed_accessor_index_error(self):
         path = _fixture_path("formats", "h264_mp4.mp4")
-        result = batch_decode([path])
+        result = batch_decode([path], levels=[LevelConfig(width=192, height=192, quality=85)])
         with pytest.raises(IndexError):
             result.jpeg_stream(99)
 
     def test_tuple_unpacking_still_works(self):
         path = _fixture_path("formats", "h264_mp4.mp4")
-        results, metrics = batch_decode([path])
+        results, metrics = batch_decode([path], levels=[LevelConfig(width=192, height=192, quality=85)])
         assert isinstance(results, list)
         assert metrics.keyframes_decoded > 0
         from vex import JpegStreamResult
@@ -467,7 +472,7 @@ class TestBatchDecodeAsync:
 
     def test_batch_decode_async(self):
         path = _fixture_path("formats", "h264_mp4.mp4")
-        handle = batch_decode_async([path])
+        handle = batch_decode_async([path], levels=[LevelConfig(width=192, height=192, quality=85)])
 
         # Handle should exist and eventually complete
         assert handle is not None

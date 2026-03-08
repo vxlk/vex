@@ -146,12 +146,33 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
 
         const std::string& path = ctx->config.paths[static_cast<size_t>(file_idx)];
 
-        // Try HW accel first, fall back to software if 0 frames produced
+        // Stage 3: Determine HW compatibility before opening the codec.
+        // We open the file once with SW to discover the codec ID and source
+        // resolution, then decide whether to use HW.  For incompatible codecs
+        // this avoids a wasted HW open+fail+retry cycle.  We also skip HW
+        // for small sources (< 720p) where the GPU→CPU transfer overhead
+        // exceeds the decode savings — measured on Intel UHD 620 iGPU.
+        static constexpr int HW_MIN_PIXELS = 1280 * 720;
+
         bool skip_file = false;
+        bool hw_compatible = false;
+        if (hw_ptr) {
+            FileDecoder probe(path, nullptr);
+            if (probe.is_valid()) {
+                int src_pixels = probe.source_width() * probe.source_height();
+                hw_compatible = can_hw_decode(
+                    hw_ptr->device_type, probe.codec_id())
+                    && (src_pixels >= HW_MIN_PIXELS);
+            }
+        }
+
         for (int hw_attempt = 0; hw_attempt < 2; ++hw_attempt) {
-        HWAccelContext* use_hw = (hw_attempt == 0) ? hw_ptr : nullptr;
-        // On retry (attempt 1), skip if there was no HW to fall back from
-        if (hw_attempt == 1 && !hw_ptr) break;
+        HWAccelContext* use_hw = nullptr;
+        if (hw_attempt == 0 && hw_compatible) {
+            use_hw = hw_ptr;
+        }
+        // On retry (attempt 1), only if we actually tried HW on attempt 0
+        if (hw_attempt == 1 && !hw_compatible) break;
 
         FileDecoder decoder_file(path, use_hw);
         if (!decoder_file.is_valid()) {

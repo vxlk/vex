@@ -684,13 +684,9 @@ def batch_decode(
         results, metrics = batch_decode(["video.mp4"])
         stream = results[0]                  # -> Union[...] (untyped)
 
-    Example — native resolution (no scaling)::
+    Example — native resolution at max quality (the default)::
 
-        from vex import NATIVE
-        result = batch_decode(
-            ["video.mp4"],
-            levels=[LevelConfig(width=NATIVE, height=NATIVE, quality=95)],
-        )
+        result = batch_decode(["video.mp4"])
 
     Example — two levels in one pass::
 

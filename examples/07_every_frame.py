@@ -9,9 +9,11 @@ VIDEO = os.path.join(os.path.dirname(__file__), '..', 'fixtures', 'formats', 'h2
 
 # --- Every frame (default) ---------------------------------------------------
 
+LEVEL = [LevelConfig(width=192, height=192, quality=85)]
+
 result = batch_decode(
     paths=[VIDEO],
-    levels=[LevelConfig(width=192, height=192, quality=85)],
+    levels=LEVEL,
 )
 
 stream = result.jpeg_stream()
@@ -23,7 +25,7 @@ print(f"  Pipeline: {result.metrics.pipeline_fps:.0f} fps")
 
 result_skip = batch_decode(
     paths=[VIDEO],
-    levels=[LevelConfig(width=192, height=192, quality=85)],
+    levels=LEVEL,
     frame_skip=5,
 )
 
@@ -36,7 +38,7 @@ print(f"  Pipeline: {result_skip.metrics.pipeline_fps:.0f} fps")
 
 result_kf = batch_decode(
     paths=[VIDEO],
-    levels=[LevelConfig(width=192, height=192, quality=85)],
+    levels=LEVEL,
     keyframes_only=True,
 )
 

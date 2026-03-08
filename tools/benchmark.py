@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 """Benchmark vex vs FFmpeg subprocess pipeline.
 
-Decodes every fixture in fixtures/formats/ at 192x192 quality-85 using both:
-  1. vex.batch_decode  — in-process, batched C++ pipeline (one call for all files)
-  2. FFmpeg subprocess — one ffmpeg invocation per file, MJPEG piped to stdout,
-     JPEGs split from the byte stream and stored in a Python list
+Two benchmark sections:
+  1. Thumbnail mode  — 192x192 q85 (the typical use case)
+  2. Native mode     — full source resolution, q100 (lossless extraction)
 
-This mirrors the real-world comparison: a Python application that needs
-thumbnails from many videos can either shell out to ffmpeg per file or
-call vex once.
+Each section compares:
+  vex.batch_decode  — in-process, batched C++ pipeline (one call for all files)
+  FFmpeg subprocess — one ffmpeg invocation per file, MJPEG piped to stdout,
+                      JPEGs split from the byte stream and stored in a Python list
 
-Produces a horizontal bar chart saved to assets/benchmark.png.
+Produces charts saved to assets/benchmark.png and assets/benchmark_native.png.
 
 Usage:
-    python tools/benchmark.py              # run benchmark + generate chart
+    python tools/benchmark.py              # run both benchmarks
     python tools/benchmark.py --runs 3     # best-of-3
+    python tools/benchmark.py --section thumb   # thumbnail only
+    python tools/benchmark.py --section native  # native only
 """
 from __future__ import annotations
 
@@ -45,18 +47,11 @@ ASSETS_DIR = PROJECT_ROOT / "assets"
 # FFmpeg pipe decode — the "naive" approach vex replaces
 # ---------------------------------------------------------------------------
 
-def ffmpeg_pipe_decode(input_path: str, width: int = 192, height: int = 192
-                       ) -> tuple[float, int]:
+def ffmpeg_pipe_decode(input_path: str, width: int | None = None,
+                       height: int | None = None) -> tuple[float, int]:
     """Spawn FFmpeg, pipe MJPEG to stdout, scan markers, build index.
 
-    The full pipeline a caller would need:
-      1. Spawn ffmpeg subprocess
-      2. Read piped MJPEG byte stream
-      3. Scan SOI/EOI markers to find frame boundaries
-      4. Slice into individual JPEG buffers (indexed array)
-
-    All four steps are timed — vex returns a pre-indexed blob with an
-    offset array, so the FFmpeg path must include the equivalent work.
+    If width/height are None, no scaling is applied (native resolution).
 
     Returns (elapsed_seconds, frame_count).
     """
@@ -65,14 +60,19 @@ def ffmpeg_pipe_decode(input_path: str, width: int = 192, height: int = 192
         "-hide_banner", "-loglevel", "error",
         "-i", input_path,
         "-fps_mode", "passthrough",
-        "-vf", f"scale={width}:{height}:flags=bilinear",
+    ]
+
+    if width is not None and height is not None:
+        cmd += ["-vf", f"scale={width}:{height}:flags=bilinear"]
+
+    cmd += [
         "-q:v", "2",
         "-f", "image2pipe",
         "-vcodec", "mjpeg",
         "pipe:1",
     ]
     t0 = time.perf_counter()
-    proc = subprocess.run(cmd, capture_output=True, timeout=60)
+    proc = subprocess.run(cmd, capture_output=True, timeout=120)
 
     if proc.returncode != 0:
         elapsed = time.perf_counter() - t0
@@ -105,21 +105,27 @@ def _split_jpegs(data: bytes) -> list[bytes]:
 
 
 # ---------------------------------------------------------------------------
-# Benchmark
+# Benchmark runner
 # ---------------------------------------------------------------------------
 
-def run_benchmark(fixtures: list[tuple[str, str]], width: int, height: int,
-                  quality: int, runs: int) -> tuple[dict, list[dict]]:
+def run_benchmark(fixtures: list[tuple[str, str]], width: int | None,
+                  height: int | None, quality: int,
+                  runs: int) -> tuple[dict, list[dict]]:
     """Run the full benchmark.
 
+    width/height=None means native resolution (0 in LevelConfig).
     Returns (aggregate_dict, per_format_list).
     """
     all_paths = [path for _, path in fixtures]
     n_files = len(fixtures)
 
+    # LevelConfig: 0 means native resolution
+    lc_w = width if width is not None else 0
+    lc_h = height if height is not None else 0
+
     # -- Warmup (one quick vex call to JIT any lazy init) --------------------
     batch_decode(all_paths[:1],
-                 levels=[LevelConfig(width=width, height=height,
+                 levels=[LevelConfig(width=lc_w, height=lc_h,
                                      quality=quality)],
                  keyframes_only=False)
 
@@ -136,7 +142,7 @@ def run_benchmark(fixtures: list[tuple[str, str]], width: int, height: int,
         t0 = time.perf_counter()
         result = batch_decode(
             all_paths,
-            levels=[LevelConfig(width=width, height=height, quality=quality)],
+            levels=[LevelConfig(width=lc_w, height=lc_h, quality=quality)],
             keyframes_only=False,
         )
         vt = time.perf_counter() - t0
@@ -163,6 +169,12 @@ def run_benchmark(fixtures: list[tuple[str, str]], width: int, height: int,
     speedup = best_ff / best_vex if best_vex > 0 else float("inf")
     vex_amortized = best_vex / n_files
 
+    # Determine resolution label
+    if width is not None and height is not None:
+        res_label = f"{width}x{height}"
+    else:
+        res_label = "native"
+
     aggregate = {
         "vex_time": best_vex,
         "ffmpeg_time": best_ff,
@@ -170,6 +182,8 @@ def run_benchmark(fixtures: list[tuple[str, str]], width: int, height: int,
         "speedup": speedup,
         "n_files": n_files,
         "vex_amortized": vex_amortized,
+        "res_label": res_label,
+        "quality": quality,
     }
 
     # Build per-format rows using FFmpeg per-file times and vex amortized time
@@ -187,6 +201,33 @@ def run_benchmark(fixtures: list[tuple[str, str]], width: int, height: int,
 
 
 # ---------------------------------------------------------------------------
+# Print summary
+# ---------------------------------------------------------------------------
+
+def print_summary(aggregate: dict, rows: list[dict], label: str):
+    res = aggregate["res_label"]
+    q = aggregate["quality"]
+    print(f"\n{'='*64}")
+    print(f"  {label}")
+    print(f"  vex batch_decode ({aggregate['n_files']} files, "
+          f"{aggregate['total_frames']} frames)")
+    print(f"    total:     {aggregate['vex_time']*1000:>8.1f} ms")
+    print(f"    per file:  {aggregate['vex_amortized']*1000:>8.1f} ms")
+    print(f"  FFmpeg image2pipe (sequential, {aggregate['n_files']} files)")
+    print(f"    total:     {aggregate['ffmpeg_time']*1000:>8.1f} ms")
+    print(f"    per file:  {aggregate['ffmpeg_time']/aggregate['n_files']*1000:>8.1f} ms")
+    print(f"  Speedup: {aggregate['speedup']:.1f}x")
+    print(f"{'='*64}\n")
+
+    print(f"  {'Format':<28} {'ffmpeg':>9} {'vex (amort)':>11}")
+    print(f"  {'-'*28} {'-'*9} {'-'*11}")
+    for r in sorted(rows, key=lambda r: -r["ffmpeg_time"]):
+        print(f"  {r['name']:<28} "
+              f"{r['ffmpeg_time']*1000:>8.1f}ms "
+              f"{r['vex_amortized']*1000:>10.1f}ms")
+
+
+# ---------------------------------------------------------------------------
 # Chart
 # ---------------------------------------------------------------------------
 
@@ -196,10 +237,12 @@ def generate_chart(rows: list[dict], aggregate: dict, out_path: Path):
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from matplotlib.patches import FancyBboxPatch
     except ImportError:
         print("ERROR: matplotlib required.  pip install matplotlib")
         sys.exit(1)
+
+    res = aggregate["res_label"]
+    q = aggregate["quality"]
 
     # Sort by FFmpeg time descending (slowest at top)
     rows = sorted(rows, key=lambda r: r["ffmpeg_time"])
@@ -238,7 +281,7 @@ def generate_chart(rows: list[dict], aggregate: dict, out_path: Path):
         f"{aggregate['ffmpeg_time']*1000:.0f} ms  "
         f"({spd:.1f}x faster)\n"
         f"{n_files} formats, {total_frames} total frames, "
-        f"192x192 q85, sequential decode",
+        f"{res} q{q}, sequential decode",
         fontsize=10, pad=14,
     )
     ax.legend(loc="lower right", fontsize=9, framealpha=0.9)
@@ -267,6 +310,9 @@ def main():
     parser.add_argument("--width", type=int, default=192)
     parser.add_argument("--height", type=int, default=192)
     parser.add_argument("--quality", type=int, default=85)
+    parser.add_argument("--section", type=str, default="all",
+                        choices=["all", "thumb", "native"],
+                        help="Which benchmark sections to run")
     parser.add_argument("--output", type=str,
                         default=str(ASSETS_DIR / "benchmark.png"))
     args = parser.parse_args()
@@ -289,34 +335,36 @@ def main():
         print("ERROR: No fixture files found.")
         sys.exit(1)
 
-    print(f"Benchmarking {len(fixtures)} formats at "
-          f"{args.width}x{args.height} q{args.quality} "
-          f"({'best of ' + str(args.runs) if args.runs > 1 else '1 run'})...\n")
+    run_thumb  = args.section in ("all", "thumb")
+    run_native = args.section in ("all", "native")
 
-    aggregate, rows = run_benchmark(
-        fixtures, args.width, args.height, args.quality, args.runs)
+    # -- Section 1: Thumbnail benchmark --------------------------------------
+    if run_thumb:
+        print(f"[Thumbnail] {len(fixtures)} formats at "
+              f"{args.width}x{args.height} q{args.quality} "
+              f"({'best of ' + str(args.runs) if args.runs > 1 else '1 run'})...\n")
 
-    # -- Print summary -------------------------------------------------------
-    print(f"\n{'='*64}")
-    print(f"  vex batch_decode ({aggregate['n_files']} files, "
-          f"{aggregate['total_frames']} frames)")
-    print(f"    total:     {aggregate['vex_time']*1000:>8.1f} ms")
-    print(f"    per file:  {aggregate['vex_amortized']*1000:>8.1f} ms")
-    print(f"  FFmpeg image2pipe (sequential, {aggregate['n_files']} files)")
-    print(f"    total:     {aggregate['ffmpeg_time']*1000:>8.1f} ms")
-    print(f"    per file:  {aggregate['ffmpeg_time']/aggregate['n_files']*1000:>8.1f} ms")
-    print(f"  Speedup: {aggregate['speedup']:.1f}x")
-    print(f"{'='*64}\n")
+        agg_thumb, rows_thumb = run_benchmark(
+            fixtures, args.width, args.height, args.quality, args.runs)
 
-    print(f"  {'Format':<28} {'ffmpeg':>9} {'vex (amort)':>11}")
-    print(f"  {'-'*28} {'-'*9} {'-'*11}")
-    for r in sorted(rows, key=lambda r: -r["ffmpeg_time"]):
-        print(f"  {r['name']:<28} "
-              f"{r['ffmpeg_time']*1000:>8.1f}ms "
-              f"{r['vex_amortized']*1000:>10.1f}ms")
+        print_summary(agg_thumb, rows_thumb, f"Thumbnail ({args.width}x{args.height} q{args.quality})")
 
-    # -- Generate chart ------------------------------------------------------
-    generate_chart(rows, aggregate, Path(args.output))
+        thumb_chart = Path(args.output)
+        generate_chart(rows_thumb, agg_thumb, thumb_chart)
+
+    # -- Section 2: Native resolution benchmark ------------------------------
+    if run_native:
+        print(f"\n\n{'#'*64}")
+        print(f"[Native] {len(fixtures)} formats at native resolution q100 "
+              f"({'best of ' + str(args.runs) if args.runs > 1 else '1 run'})...\n")
+
+        agg_native, rows_native = run_benchmark(
+            fixtures, None, None, 100, args.runs)
+
+        print_summary(agg_native, rows_native, "Native resolution (q100)")
+
+        native_chart = Path(args.output).parent / "benchmark_native.png"
+        generate_chart(rows_native, agg_native, native_chart)
 
 
 if __name__ == "__main__":

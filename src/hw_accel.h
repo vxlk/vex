@@ -37,4 +37,12 @@ bool transfer_hw_frame(const AVFrame* hw_frame, AVFrame* sw_frame);
 // AVCodecContext::get_format callback for HW decode.
 AVPixelFormat hw_get_format(AVCodecContext* ctx, const AVPixelFormat* pix_fmts);
 
+// Check whether a given codec can be HW-decoded on the given device type.
+// Uses a static compatibility table covering common GPU families.
+bool can_hw_decode(AVHWDeviceType device_type, AVCodecID codec_id);
+
+// For CUDA devices, return the name of the dedicated cuvid decoder for a
+// codec (e.g. "h264_cuvid"), or nullptr if none exists.
+const char* get_cuvid_decoder_name(AVCodecID codec_id);
+
 } // namespace vex

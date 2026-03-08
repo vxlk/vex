@@ -10,7 +10,7 @@ VIDEO = os.path.join(os.path.dirname(__file__), '..', 'fixtures', 'formats', 'h2
 
 result = batch_decode(
     paths=[VIDEO],
-    levels=[LevelConfig(width=192, height=192, quality=85)],
+    levels=[LevelConfig()],  # defaults: native resolution, quality 100
 )
 
 # Typed accessor — returns JpegStreamResult directly (no isinstance needed)

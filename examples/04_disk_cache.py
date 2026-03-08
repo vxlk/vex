@@ -15,7 +15,6 @@ print(f"Decoding to disk: {cache_path}")
 results, metrics = batch_decode(
     paths=[VIDEO],
     levels=[LevelConfig(
-        width=192, height=192, quality=85,
         output="jpeg_stream",
         in_memory=False,
         cache_path=cache_path,

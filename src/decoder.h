@@ -7,6 +7,7 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libavutil/frame.h>
+#include <libswscale/swscale.h>
 }
 
 #include <string>
@@ -24,6 +25,10 @@ public:
     FileDecoder& operator=(const FileDecoder&) = delete;
 
     bool is_valid() const { return valid_; }
+
+    // The codec ID of the video stream (available after construction,
+    // even if the codec failed to open — useful for HW compatibility checks).
+    AVCodecID codec_id() const { return codec_id_; }
 
     // Extract keyframe index via the fallback chain.
     KeyframeIndex scan_keyframes();
@@ -69,7 +74,16 @@ private:
     int              height_    = 0;
     int64_t          file_size_ = 0;
     std::string      codec_name_;
+    AVCodecID        codec_id_  = AV_CODEC_ID_NONE;
     bool             valid_     = false;
+
+    // Cached pixel-format conversion context (Stage 1: avoids per-frame alloc).
+    // Used when HW decode produces NV12 or other non-YUV420P output.
+    SwsContext*      convert_ctx_     = nullptr;
+    AVFrame*         convert_frame_   = nullptr;
+    int              convert_src_fmt_ = AV_PIX_FMT_NONE;
+    int              convert_src_w_   = 0;
+    int              convert_src_h_   = 0;
 };
 
 } // namespace vex
