@@ -108,6 +108,7 @@ struct SharedContext {
 
     // HW acceleration (optional)
     std::optional<HWAccelContext> hw_ctx;
+    std::string hw_backend_name;   // "d3d11va", "cuda", "qsv", "vaapi", or ""
 
     // Per-level accumulators (shared_ptrs for thread-safe sharing)
     std::vector<std::shared_ptr<MemoryLevelAccum>> mem_accums;
@@ -159,6 +160,7 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
             fs.file_index      = file_idx;
             fs.index_strategy  = IndexStrategy::SKIPPED;
             fs.file_size_bytes = 0;
+            fs.hw_accel_used   = (use_hw != nullptr);
             tm.file_stats.push_back(fs);
             skip_file = true;
             break;
@@ -347,6 +349,10 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
                 fs.index_strategy  = kf_index.strategy;
                 fs.file_size_bytes = decoder_file.file_size();
                 fs.keyframe_count  = 0;
+                fs.codec_name      = decoder_file.codec_name();
+                fs.source_width    = decoder_file.source_width();
+                fs.source_height   = decoder_file.source_height();
+                fs.hw_accel_used   = (use_hw != nullptr);
                 tm.file_stats.push_back(fs);
                 break; // falls through to retry check
             }
@@ -393,6 +399,10 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
             fs.keyframe_count  = kf_count;
             fs.file_size_bytes = decoder_file.file_size();
             fs.index_strategy  = kf_index.strategy;
+            fs.codec_name      = decoder_file.codec_name();
+            fs.source_width    = decoder_file.source_width();
+            fs.source_height   = decoder_file.source_height();
+            fs.hw_accel_used   = (use_hw != nullptr);
             tm.file_stats.push_back(fs);
 
         // ── Sequential (every-frame) path ──────────────────────────────
@@ -418,6 +428,10 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
                 fs.file_index      = file_idx;
                 fs.index_strategy  = IndexStrategy::SKIPPED;
                 fs.file_size_bytes = decoder_file.file_size();
+                fs.codec_name      = decoder_file.codec_name();
+                fs.source_width    = decoder_file.source_width();
+                fs.source_height   = decoder_file.source_height();
+                fs.hw_accel_used   = (use_hw != nullptr);
                 tm.file_stats.push_back(fs);
                 break; // falls through to retry check
             }
@@ -457,6 +471,10 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
             fs.keyframe_count  = frames_decoded_this_file;
             fs.file_size_bytes = decoder_file.file_size();
             fs.index_strategy  = IndexStrategy::DECODE_SCAN;
+            fs.codec_name      = decoder_file.codec_name();
+            fs.source_width    = decoder_file.source_width();
+            fs.source_height   = decoder_file.source_height();
+            fs.hw_accel_used   = (use_hw != nullptr);
             tm.file_stats.push_back(fs);
         }
 
@@ -615,10 +633,14 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
                     }
 
                     FileStats fs{};
-                    fs.file_index = file_idx;
-                    fs.keyframe_count = 0; // sequential fallback
+                    fs.file_index      = file_idx;
+                    fs.keyframe_count  = 0; // sequential fallback
                     fs.file_size_bytes = fallback_dec.file_size();
-                    fs.index_strategy = IndexStrategy::DECODE_SCAN;
+                    fs.index_strategy  = IndexStrategy::DECODE_SCAN;
+                    fs.codec_name      = fallback_dec.codec_name();
+                    fs.source_width    = fallback_dec.source_width();
+                    fs.source_height   = fallback_dec.source_height();
+                    fs.hw_accel_used   = false; // fallback is always SW
                     tm.file_stats.push_back(fs);
                 }
             }
@@ -670,6 +692,8 @@ static void manager_func(std::shared_ptr<SharedContext> ctx,
     // Merge metrics
     DecodeMetrics metrics = merge_thread_metrics(tm_vec, ctx->num_levels, wall_us,
                                                  num_threads);
+    metrics.hw_accel_backend = ctx->hw_backend_name;
+    metrics.encoder          = "libturbojpeg";
 
     // Build LevelResults
     std::vector<LevelResult> results(static_cast<size_t>(ctx->num_levels));
@@ -775,10 +799,14 @@ Orchestrator::batch_decode_async(const BatchConfig& config) {
     // Create shared handle
     ctx->handle = std::make_shared<DecodeHandle>(num_threads, num_files);
 
-    // Try to probe HW acceleration (optional, best-effort)
-    const AVCodec* probe_codec = avcodec_find_decoder(AV_CODEC_ID_H264);
-    if (probe_codec) {
-        ctx->hw_ctx = probe_hw_accel(probe_codec);
+    // Get HW acceleration context (cached across calls, probed once)
+    if (config.use_hw_accel) {
+        ctx->hw_ctx = get_cached_hw_accel();
+        if (ctx->hw_ctx.has_value()) {
+            const char* name = av_hwdevice_get_type_name(
+                ctx->hw_ctx->device_type);
+            ctx->hw_backend_name = name ? name : "";
+        }
     }
 
     // Work queue

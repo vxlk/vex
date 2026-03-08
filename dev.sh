@@ -9,6 +9,7 @@
 #   install        Create a venv, install deps, build Release, make vex importable
 #   clean          Remove build directory
 #   fixtures       Generate test video fixtures
+#   bench          Run speed comparison vs FFmpeg and generate chart
 #   run-example    Run all examples against fixtures
 
 set -euo pipefail
@@ -85,15 +86,12 @@ cmd_install() {
 
     log "Installing Python dependencies..."
     pip install --upgrade pip
-    pip install numpy pytest
 
     log "Building Release..."
     cmd_build_release
 
-    # Create a .pth file so vex is importable from the venv
-    local site_pkgs
-    site_pkgs=$(python -c "import site; print(site.getsitepackages()[0])")
-    echo "$PYTHON_PKG" > "$site_pkgs/vex.pth"
+    log "Installing vex package (editable)..."
+    pip install -e ".[test]"
 
     log "Install complete."
     log "Activate with:  source .venv/Scripts/activate  (or .venv/bin/activate on Linux/Mac)"
@@ -115,6 +113,14 @@ cmd_fixtures() {
         ensure_venv
     fi
     python "$PROJECT_ROOT/tools/generate_fixtures.py" "$@"
+}
+
+cmd_bench() {
+    if [ -d "$VENV_DIR" ]; then
+        ensure_venv
+    fi
+    log "Running benchmark (vex vs FFmpeg)..."
+    PYTHONPATH="$PYTHON_PKG" python "$PROJECT_ROOT/tools/benchmark.py" "$@"
 }
 
 cmd_run_example() {
@@ -141,6 +147,7 @@ case "${1:-help}" in
     install)        cmd_install ;;
     clean)          cmd_clean ;;
     fixtures)       shift; cmd_fixtures "$@" ;;
+    bench)          shift; cmd_bench "$@" ;;
     run-example)    cmd_run_example ;;
     help|--help|-h)
         echo "Usage: ./dev.sh <command>"
@@ -152,6 +159,7 @@ case "${1:-help}" in
         echo "  install        Create venv, install deps, build, make vex importable"
         echo "  clean          Remove build artifacts"
         echo "  fixtures       Generate test video fixtures"
+        echo "  bench          Run speed comparison vs FFmpeg and generate chart"
         echo "  run-example    Run all examples"
         ;;
     *)

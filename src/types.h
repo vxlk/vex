@@ -43,6 +43,7 @@ struct BatchConfig {
     int max_threads     = 8;
     bool keyframes_only = false;
     int frame_skip      = 1;       // ignored if keyframes_only=true
+    bool use_hw_accel   = true;    // false → skip GPU decode, use software only
 };
 
 // ── Keyframe index ─────────────────────────────────────────────────────────
@@ -94,6 +95,10 @@ struct FileStats {
     int           keyframe_count  = 0;
     int64_t       file_size_bytes = 0;
     IndexStrategy index_strategy  = IndexStrategy::SKIPPED;
+    std::string   codec_name;                // e.g. "h264", "hevc", "vp9"
+    int           source_width    = 0;
+    int           source_height   = 0;
+    bool          hw_accel_used   = false;   // true if GPU decode was used
 };
 
 struct DecodeMetrics {
@@ -111,6 +116,10 @@ struct DecodeMetrics {
     int keyframes_decoded = 0;
     int keyframes_skipped = 0;
     int threads_used      = 0;
+
+    // Pipeline info
+    std::string hw_accel_backend;   // "d3d11va", "cuda", "qsv", "vaapi", or ""
+    std::string encoder;            // JPEG encoder name, e.g. "libturbojpeg"
 
     // Memory (bytes)
     int64_t peak_decode_memory  = 0;

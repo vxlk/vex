@@ -28,6 +28,8 @@ py::dict metrics_to_dict(const vex::DecodeMetrics& m) {
     d["decode_fps"]          = m.decode_fps();
     d["pipeline_fps"]        = m.pipeline_fps();
     d["thread_utilization"]  = m.thread_utilization();
+    d["hw_accel_backend"]    = m.hw_accel_backend;
+    d["encoder"]             = m.encoder;
 
     py::list level_list;
     for (const auto& lm : m.levels) {
@@ -55,6 +57,10 @@ py::dict metrics_to_dict(const vex::DecodeMetrics& m) {
         fd["keyframe_count"]  = fs.keyframe_count;
         fd["file_size_bytes"] = fs.file_size_bytes;
         fd["index_strategy"]  = static_cast<int>(fs.index_strategy);
+        fd["codec_name"]      = fs.codec_name;
+        fd["source_width"]    = fs.source_width;
+        fd["source_height"]   = fs.source_height;
+        fd["hw_accel_used"]   = fs.hw_accel_used;
         file_list.append(fd);
     }
     d["file_stats"] = file_list;
@@ -243,7 +249,8 @@ PYBIND11_MODULE(_vex_core, m) {
         const std::vector<vex::LevelConfig>& levels,
         int max_threads,
         bool keyframes_only,
-        int frame_skip) -> py::tuple
+        int frame_skip,
+        bool use_hw_accel) -> py::tuple
     {
         vex::BatchConfig cfg{};
         cfg.paths          = paths;
@@ -251,6 +258,7 @@ PYBIND11_MODULE(_vex_core, m) {
         cfg.max_threads    = max_threads;
         cfg.keyframes_only = keyframes_only;
         cfg.frame_skip     = frame_skip;
+        cfg.use_hw_accel   = use_hw_accel;
 
         std::vector<vex::LevelResult> results;
         vex::DecodeMetrics metrics;
@@ -270,6 +278,7 @@ PYBIND11_MODULE(_vex_core, m) {
         py::arg("max_threads")    = 8,
         py::arg("keyframes_only") = true,
         py::arg("frame_skip")     = 1,
+        py::arg("use_hw_accel")   = true,
         "Decode video keyframes synchronously. Returns (results_list, metrics_dict).");
 
     // ── DecodeHandle wrapper ────────────────────────────────────────────────
@@ -333,7 +342,8 @@ PYBIND11_MODULE(_vex_core, m) {
         const std::vector<vex::LevelConfig>& levels,
         int max_threads,
         bool keyframes_only,
-        int frame_skip) -> std::shared_ptr<vex::DecodeHandle>
+        int frame_skip,
+        bool use_hw_accel) -> std::shared_ptr<vex::DecodeHandle>
     {
         vex::BatchConfig cfg{};
         cfg.paths          = paths;
@@ -341,6 +351,7 @@ PYBIND11_MODULE(_vex_core, m) {
         cfg.max_threads    = max_threads;
         cfg.keyframes_only = keyframes_only;
         cfg.frame_skip     = frame_skip;
+        cfg.use_hw_accel   = use_hw_accel;
 
         py::gil_scoped_release release;
         return vex::Orchestrator::batch_decode_async(cfg);
@@ -350,5 +361,6 @@ PYBIND11_MODULE(_vex_core, m) {
         py::arg("max_threads")    = 8,
         py::arg("keyframes_only") = true,
         py::arg("frame_skip")     = 1,
+        py::arg("use_hw_accel")   = true,
         "Decode video keyframes asynchronously. Returns DecodeHandle.");
 }

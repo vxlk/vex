@@ -269,8 +269,14 @@ class DecodeMetrics:
         peak_decode_memory:  peak memory during decode (bytes).
         total_output_bytes:  total output bytes produced.
         atlas_scratch_bytes: scratch memory for atlas composition.
+        hw_accel_backend:    HW accel device used (``"d3d11va"``,
+                             ``"cuda"``, ``"qsv"``, ``"vaapi"``, or
+                             ``""`` when software-only).
+        encoder:             JPEG encoder library (e.g. ``"libturbojpeg"``).
         levels:              per-level metrics (list of dicts).
-        file_stats:          per-file stats (list of dicts).
+        file_stats:          per-file stats (list of dicts).  Each dict
+                             includes ``codec_name``, ``source_width``,
+                             ``source_height``, and ``hw_accel_used``.
     """
 
     def __init__(self, **kwargs):
@@ -286,6 +292,8 @@ class DecodeMetrics:
         self.peak_decode_memory: int = kwargs.get("peak_decode_memory", 0)
         self.total_output_bytes: int = kwargs.get("total_output_bytes", 0)
         self.atlas_scratch_bytes: int = kwargs.get("atlas_scratch_bytes", 0)
+        self.hw_accel_backend: str = kwargs.get("hw_accel_backend", "")
+        self.encoder: str = kwargs.get("encoder", "")
         self.levels: list = kwargs.get("levels", [])
         self.file_stats: list = kwargs.get("file_stats", [])
 
@@ -300,6 +308,55 @@ class DecodeMetrics:
         if self.total_wall_us > 0:
             return self.keyframes_decoded / (self.total_wall_us / 1e6)
         return 0.0
+
+    _STRATEGY_NAMES = {
+        0: "container_index", 1: "packet_scan", 2: "decode_scan",
+        3: "forced_interval", 4: "skipped",
+    }
+
+    def log_summary(self) -> str:
+        """Return a multi-line string summarising the decode pipeline.
+
+        Intended for logging — includes wall time, decoder/encoder info,
+        HW backend, per-file codec details, and per-level output stats.
+
+        Example::
+
+            import logging
+            result = batch_decode(["video.mp4"])
+            logging.info(result.metrics.log_summary())
+        """
+        lines = []
+        wall_ms = self.total_wall_us / 1000
+        lines.append(f"vex decode  wall={wall_ms:.1f}ms  "
+                     f"frames={self.keyframes_decoded}  "
+                     f"fps={self.pipeline_fps:.1f}")
+        hw = self.hw_accel_backend or "none"
+        lines.append(f"  hw_accel={hw}  encoder={self.encoder}  "
+                     f"threads={self.threads_used}")
+
+        for fs in self.file_stats:
+            strat = self._STRATEGY_NAMES.get(fs.get("index_strategy", 4),
+                                             "unknown")
+            hw_flag = "hw" if fs.get("hw_accel_used") else "sw"
+            lines.append(
+                f"  file[{fs['file_index']}]  "
+                f"codec={fs.get('codec_name', '?')}  "
+                f"{fs.get('source_width', 0)}x{fs.get('source_height', 0)}  "
+                f"decode={hw_flag}  strategy={strat}  "
+                f"frames={fs.get('keyframe_count', 0)}  "
+                f"time={fs.get('decode_us', 0) / 1000:.1f}ms"
+            )
+
+        for i, lm in enumerate(self.levels):
+            lines.append(
+                f"  level[{i}]  {lm.get('width', 0)}x{lm.get('height', 0)}  "
+                f"q={lm.get('quality', 0)}  fmt={lm.get('output_format', '?')}  "
+                f"frames={lm.get('frame_count', 0)}  "
+                f"output={lm.get('output_bytes', 0)} bytes"
+            )
+
+        return "\n".join(lines)
 
     def __repr__(self) -> str:
         wall_ms = self.total_wall_us / 1000
@@ -582,6 +639,7 @@ def batch_decode(
     max_threads: int = 8,
     keyframes_only: bool = False,
     frame_skip: int = 1,
+    use_hw_accel: bool = True,
 ) -> BatchResult:
     """Decode video frames from one or more video files.
 
@@ -602,6 +660,10 @@ def batch_decode(
         keyframes_only: If ``True``, only I-frames are decoded.
         frame_skip:     Decode every *N*-th frame.  Only used when
                         ``keyframes_only=False``.
+        use_hw_accel:   If ``False``, skip GPU-accelerated decoding and
+                        use software (CPU) decode only.  Useful when HW
+                        decode produces incorrect output for certain
+                        videos.
 
     Returns:
         A :class:`BatchResult`.  Access typed results via
@@ -654,7 +716,8 @@ def batch_decode(
 
     native_levels = _to_native_levels(_vex_core, levels)
     raw_results, raw_metrics = _vex_core.batch_decode(
-        list(paths), native_levels, max_threads, keyframes_only, frame_skip)
+        list(paths), native_levels, max_threads, keyframes_only, frame_skip,
+        use_hw_accel)
 
     level_results = [_wrap_level_result(r) for r in raw_results]
     metrics = _wrap_metrics(raw_metrics)
@@ -729,6 +792,7 @@ def batch_decode_async(
     max_threads: int = 8,
     keyframes_only: bool = False,
     frame_skip: int = 1,
+    use_hw_accel: bool = True,
 ) -> DecodeHandle:
     """Start an asynchronous batch decode operation.
 
@@ -748,7 +812,8 @@ def batch_decode_async(
 
     native_levels = _to_native_levels(_vex_core, levels)
     native_handle = _vex_core.batch_decode_async(
-        list(paths), native_levels, max_threads, keyframes_only, frame_skip)
+        list(paths), native_levels, max_threads, keyframes_only, frame_skip,
+        use_hw_accel)
 
     return DecodeHandle(native_handle)
 

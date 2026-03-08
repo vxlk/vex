@@ -8,7 +8,37 @@ extern "C" {
 #include <libavutil/pixfmt.h>
 }
 
+#include <mutex>
+
 namespace vex {
+
+// ── Cached HW context (process-global singleton) ────────────────────────────
+
+static std::once_flag g_hw_probe_flag;
+static std::optional<HWAccelContext> g_hw_cached;
+
+std::optional<HWAccelContext> get_cached_hw_accel() {
+    std::call_once(g_hw_probe_flag, []() {
+        const AVCodec* codec = avcodec_find_decoder(AV_CODEC_ID_H264);
+        if (codec) {
+            g_hw_cached = probe_hw_accel(codec);
+        }
+    });
+
+    if (!g_hw_cached.has_value()) {
+        return std::nullopt;
+    }
+
+    // Return a copy with a new reference to the same device context.
+    // Each caller (FileDecoder) will av_buffer_ref() this in its own
+    // codec context, so the underlying device stays alive as long as
+    // any codec context holds a reference.
+    HWAccelContext copy{};
+    copy.device_ctx  = av_buffer_ref(g_hw_cached->device_ctx);
+    copy.device_type = g_hw_cached->device_type;
+    copy.hw_pix_fmt  = g_hw_cached->hw_pix_fmt;
+    return copy;
+}
 
 // ── probe_hw_accel ──────────────────────────────────────────────────────────
 

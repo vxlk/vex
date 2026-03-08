@@ -9,6 +9,7 @@ extern "C" {
 }
 
 #include <optional>
+#include <mutex>
 
 namespace vex {
 
@@ -20,6 +21,12 @@ struct HWAccelContext {
 
 // Try NVDEC → QSV → D3D11VA → VAAPI in order. Returns nullopt if all fail.
 std::optional<HWAccelContext> probe_hw_accel(const AVCodec* codec);
+
+// Get a cached HW context. Probes once on first call; subsequent calls return
+// a reference to the same device context (the AVBufferRef is ref-counted so
+// each codec context that uses it gets its own reference via av_buffer_ref).
+// Thread-safe via std::call_once.
+std::optional<HWAccelContext> get_cached_hw_accel();
 
 // Release the HW device context.
 void release_hw_accel(HWAccelContext& ctx);
