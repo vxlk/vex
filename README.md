@@ -6,15 +6,29 @@ vex links directly against FFmpeg's `libavcodec`/`libavformat`/`libswscale` and 
 
 ## Benchmark
 
-vex batch-decodes all frames from 42 container formats and produces 192x192 JPEG thumbnails in a single call. The equivalent FFmpeg approach spawns one `ffmpeg` process per file, pipes MJPEG to stdout, and parses the JPEG stream in Python.
+### Batched throughput
 
-**Thumbnail decode** — 192x192 q85:
+vex batch-decodes all frames from 42 container formats in a single `batch_decode` call. The dashed line is the **amortized average** (total wall time / N files) — not per-format timing. FFmpeg bars show actual per-file wall time (one subprocess each).
 
-![vex vs FFmpeg benchmark](assets/benchmark.png)
+**Thumbnail** — 192x192 q85:
 
-**Native decode** — full source resolution, q100:
+![vex batched thumbnail benchmark](assets/benchmark_batch_thumb.png)
 
-![vex vs FFmpeg native benchmark](assets/benchmark_native.png)
+**Native** — full source resolution, q100:
+
+![vex batched native benchmark](assets/benchmark_batch_native.png)
+
+### Per-file comparison
+
+True per-format decode: both vex and FFmpeg process one file at a time.
+
+**Thumbnail** — 192x192 q85:
+
+![vex per-file thumbnail benchmark](assets/benchmark_perfile_thumb.png)
+
+**Native** — full source resolution, q100:
+
+![vex per-file native benchmark](assets/benchmark_perfile_native.png)
 
 Regenerate with `./dev.sh bench` (or `./dev.sh bench --runs 3` for best-of-3).
 
