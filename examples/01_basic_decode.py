@@ -5,6 +5,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'python'))
 
 from vex import batch_decode, LevelConfig
 
+# Output goes to output/01_basic_decode/
+OUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'example_output', '01_basic_decode')
+os.makedirs(OUT_DIR, exist_ok=True)
+
 # Decode keyframe thumbnails from a single video file
 VIDEO = os.path.join(os.path.dirname(__file__), '..', 'fixtures', 'formats', 'h264_mp4.mp4')
 
@@ -28,7 +32,7 @@ for i in range(min(3, len(stream.offsets[0]))):
 
 # Save first frame to disk
 if len(stream.offsets[0]) > 0:
-    out_path = "frame_0.jpg"
+    out_path = os.path.join(OUT_DIR, "frame_0.jpg")
     with open(out_path, "wb") as f:
         f.write(stream.jpeg_bytes(0, 0))
     print(f"\nSaved first keyframe to {out_path}")

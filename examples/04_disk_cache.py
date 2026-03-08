@@ -1,14 +1,17 @@
 """Disk cache — decode to disk and reload via memory-mapped CachedLevel."""
 
-import sys, os, tempfile
+import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'python'))
 
 from vex import batch_decode, LevelConfig, CachedLevel
 
+# Output goes to output/04_disk_cache/
+OUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'example_output', '04_disk_cache')
+os.makedirs(OUT_DIR, exist_ok=True)
+
 VIDEO = os.path.join(os.path.dirname(__file__), '..', 'fixtures', 'formats', 'h264_mp4.mp4')
 
-# Create a temp path for the cache file
-cache_path = os.path.join(tempfile.gettempdir(), "vex_example_cache.bin")
+cache_path = os.path.join(OUT_DIR, "vex_example_cache.bin")
 
 print(f"Decoding to disk: {cache_path}")
 
@@ -41,10 +44,7 @@ with CachedLevel(cache_path) as cache:
 
     # Save last frame
     if len(cache) > 0:
-        with open("cached_frame.jpg", "wb") as f:
+        out_path = os.path.join(OUT_DIR, "cached_frame.jpg")
+        with open(out_path, "wb") as f:
             f.write(cache[-1])
-        print(f"\n  Saved last frame to cached_frame.jpg")
-
-# Clean up
-os.unlink(cache_path)
-print(f"Cleaned up {cache_path}")
+        print(f"\n  Saved last frame to {out_path}")

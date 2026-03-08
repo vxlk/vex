@@ -27,3 +27,4 @@ fixtures/*.flv
 fixtures/*.mxf
 fixtures/*.264
 vex_implementation_plan.md
+example_output/

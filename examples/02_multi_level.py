@@ -5,6 +5,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'python'))
 
 from vex import batch_decode, LevelConfig
 
+# Output goes to output/02_multi_level/
+OUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'example_output', '02_multi_level')
+os.makedirs(OUT_DIR, exist_ok=True)
+
 FIXTURES = os.path.join(os.path.dirname(__file__), '..', 'fixtures', 'formats')
 videos = [os.path.join(FIXTURES, f) for f in os.listdir(FIXTURES) if f.endswith(('.mp4', '.mkv', '.avi'))]
 
@@ -33,9 +37,10 @@ print(f"  Time steps: {n_atlases}")
 
 # Save the first atlas as a JPEG
 if n_atlases > 0:
-    with open("atlas_0.jpg", "wb") as f:
+    out_path = os.path.join(OUT_DIR, "atlas_0.jpg")
+    with open(out_path, "wb") as f:
         f.write(atlas.atlas_jpeg(0))
-    print(f"  Saved first atlas to atlas_0.jpg")
+    print(f"  Saved first atlas to {out_path}")
 print()
 
 # Level 1 — typed accessor returns JpegStreamResult directly
