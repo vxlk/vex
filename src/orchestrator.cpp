@@ -7,6 +7,7 @@
 #include "metrics.h"
 #include "hw_accel.h"
 #include "index_scanner.h"
+#include "virtual_blob.h"
 
 #include <thread>
 #include <mutex>
@@ -15,7 +16,6 @@
 #include <algorithm>
 #include <chrono>
 #include <memory>
-#include <cstring>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -76,7 +76,7 @@ struct DiskLevelAccum {
 // ── Per-level in-memory blobs container ─────────────────────────────────────
 
 struct MemoryLevelAccum {
-    std::vector<FileBlob> blobs;                                // one per file, pre-sized
+    std::vector<VirtualBlob> blobs;                             // one per file, VM-backed
     std::vector<std::vector<std::array<int64_t, 3>>> metadata;  // per-file metadata
 };
 
@@ -266,10 +266,10 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
                         auto& accum = ctx->mem_accums[static_cast<size_t>(l)];
                         auto& blob = accum->blobs[static_cast<size_t>(file_idx)];
 
-                        // Grow blob if needed (sequential decode may exceed estimate)
+                        // Commit pages if needed (VirtualBlob never moves the pointer)
                         size_t max_jpeg = JpegEncoder::max_jpeg_size(lc.width, lc.height);
                         blob.ensure_remaining(max_jpeg);
-                        size_t remaining = blob.capacity - blob.size;
+                        size_t remaining = blob.committed - blob.size;
 
                         size_t jpeg_size;
                         {
@@ -283,6 +283,7 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
                             uint32_t blob_offset = static_cast<uint32_t>(blob.size);
                             blob.offsets.push_back(static_cast<int64_t>(blob.size));
                             blob.size += jpeg_size;
+                            blob.publish();  // make data visible to streaming consumers
 
                             lm.output_bytes += static_cast<int64_t>(jpeg_size);
                             lm.frame_count++;
@@ -375,14 +376,14 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
                     break;  // falls through to retry check
                 }
 
-                // Pre-allocate FileBlobs for in-memory JPEG_STREAM levels
+                // Pre-commit pages for estimated JPEG output
                 for (int l = 0; l < ctx->num_levels; ++l) {
                     const auto& lc = resolved[static_cast<size_t>(l)];
                     if (lc.output == OutputFormat::JPEG_STREAM && lc.in_memory) {
                         size_t max_per_frame = JpegEncoder::max_jpeg_size(lc.width, lc.height);
                         size_t total_cap = max_per_frame * kf_count;
                         auto& accum = ctx->mem_accums[static_cast<size_t>(l)];
-                        accum->blobs[static_cast<size_t>(file_idx)].allocate(total_cap);
+                        accum->blobs[static_cast<size_t>(file_idx)].ensure_remaining(total_cap);
                     }
                 }
 
@@ -429,7 +430,7 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
                 int frame_skip = std::max(1, ctx->config.frame_skip);
                 int est_output = (est_frames + frame_skip - 1) / frame_skip;
 
-                // Pre-allocate FileBlobs with 1.5x estimated count
+                // Pre-commit pages for estimated JPEG output
                 for (int l = 0; l < ctx->num_levels; ++l) {
                     const auto& lc = resolved[static_cast<size_t>(l)];
                     if (lc.output == OutputFormat::JPEG_STREAM && lc.in_memory) {
@@ -437,7 +438,7 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
                         size_t total_cap =
                             max_per_frame * static_cast<size_t>(est_output * 3 / 2 + 1);
                         auto& accum = ctx->mem_accums[static_cast<size_t>(l)];
-                        accum->blobs[static_cast<size_t>(file_idx)].allocate(total_cap);
+                        accum->blobs[static_cast<size_t>(file_idx)].ensure_remaining(total_cap);
                     }
                 }
 
@@ -509,13 +510,13 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
             // Remove the file stats entry we just pushed.
             if (!tm.file_stats.empty())
                 tm.file_stats.pop_back();
-            // Reset blobs for this file (allocate frees existing data first)
+            // Reset blobs for this file (pages stay committed, data rewound)
             for (int l = 0; l < ctx->num_levels; ++l) {
                 if (ctx->config.levels[static_cast<size_t>(l)].output ==
                         OutputFormat::JPEG_STREAM &&
                     ctx->config.levels[static_cast<size_t>(l)].in_memory) {
                     auto& accum = ctx->mem_accums[static_cast<size_t>(l)];
-                    accum->blobs[static_cast<size_t>(file_idx)].allocate(1);
+                    accum->blobs[static_cast<size_t>(file_idx)].reset();
                     accum->metadata[static_cast<size_t>(file_idx)].clear();
                 }
             }
@@ -554,7 +555,7 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
                             OutputFormat::JPEG_STREAM &&
                         ctx->config.levels[static_cast<size_t>(l)].in_memory) {
                         auto& accum = ctx->mem_accums[static_cast<size_t>(l)];
-                        accum->blobs[static_cast<size_t>(file_idx)].allocate(1);
+                        accum->blobs[static_cast<size_t>(file_idx)].reset();
                         accum->metadata[static_cast<size_t>(file_idx)].clear();
                     }
                 }
@@ -580,7 +581,7 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
                                          static_cast<size_t>(est * 3 / 2 + 1);
                             ctx->mem_accums[static_cast<size_t>(l)]
                                 ->blobs[static_cast<size_t>(file_idx)]
-                                .allocate(cap);
+                                .ensure_remaining(cap);
                         }
                     }
 
@@ -635,10 +636,11 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
                                 blob.ensure_remaining(max_jpeg);
                                 size_t jpeg_size = encoder.encode(
                                     py, pu, pv, ys, uvs, lc.width, lc.height, lc.quality,
-                                    blob.data + blob.size, blob.capacity - blob.size);
+                                    blob.data + blob.size, blob.committed - blob.size);
                                 if (jpeg_size > 0) {
                                     blob.offsets.push_back(static_cast<int64_t>(blob.size));
                                     blob.size += jpeg_size;
+                                    blob.publish();
                                     lm.output_bytes += static_cast<int64_t>(jpeg_size);
                                     lm.frame_count++;
                                     accum->metadata[static_cast<size_t>(file_idx)].push_back(
@@ -683,13 +685,13 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
             }
         }
 
-        // Shrink in-memory blobs and register with handle
+        // Register blob pointers with handle (VirtualBlob pointer is
+        // already stable, but peek_jpeg still uses this for per-event reads)
         for (int l = 0; l < ctx->num_levels; ++l) {
             const auto& lc = ctx->config.levels[static_cast<size_t>(l)];
             if (lc.output == OutputFormat::JPEG_STREAM && lc.in_memory) {
                 auto& accum = ctx->mem_accums[static_cast<size_t>(l)];
                 auto& blob = accum->blobs[static_cast<size_t>(file_idx)];
-                blob.shrink_to_fit();
                 ctx->handle->register_blob(file_idx, blob.data);
             }
         }
@@ -743,6 +745,10 @@ static void manager_func(std::shared_ptr<SharedContext> ctx, std::vector<std::th
         if (lc.output == OutputFormat::JPEG_STREAM && lc.in_memory) {
             auto& accum = ctx->mem_accums[static_cast<size_t>(l)];
             JpegStreamResult jsr{};
+
+            // Move VirtualBlobs directly into the result — no copy.
+            // The VM reservation transfers ownership to JpegStreamResult;
+            // it is released when the Python capsule destructs the blob.
             jsr.blobs = std::move(accum->blobs);
 
             // Concatenate per-file metadata
@@ -860,11 +866,21 @@ std::shared_ptr<DecodeHandle> Orchestrator::batch_decode_async(const BatchConfig
     ctx->atlas_builders.resize(static_cast<size_t>(num_levels));
     ctx->disk_accums.resize(static_cast<size_t>(num_levels));
 
+    size_t reservation = config.blob_reservation > 0
+        ? config.blob_reservation
+        : VirtualBlob::DEFAULT_RESERVATION;
+
     for (int l = 0; l < num_levels; ++l) {
         const auto& lc = config.levels[static_cast<size_t>(l)];
         if (lc.output == OutputFormat::JPEG_STREAM && lc.in_memory) {
             auto accum = std::make_shared<MemoryLevelAccum>();
             accum->blobs.resize(static_cast<size_t>(num_files));
+            for (int fi = 0; fi < num_files; ++fi) {
+                accum->blobs[static_cast<size_t>(fi)].reserve(reservation);
+                // Register stable pointer immediately — it never moves
+                ctx->handle->register_blob(fi,
+                    accum->blobs[static_cast<size_t>(fi)].data);
+            }
             accum->metadata.resize(static_cast<size_t>(num_files));
             ctx->mem_accums[static_cast<size_t>(l)] = accum;
         } else if (lc.output == OutputFormat::SPRITE_ATLAS) {
@@ -874,6 +890,30 @@ std::shared_ptr<DecodeHandle> Orchestrator::batch_decode_async(const BatchConfig
             ctx->disk_accums[static_cast<size_t>(l)] = std::make_shared<DiskLevelAccum>();
         }
     }
+
+    // Register VirtualBlob pointers for streaming peek_stream access
+    {
+        std::vector<std::vector<VirtualBlob*>> stream_blobs(
+            static_cast<size_t>(num_levels));
+        for (int l = 0; l < num_levels; ++l) {
+            const auto& lc = config.levels[static_cast<size_t>(l)];
+            if (lc.output == OutputFormat::JPEG_STREAM && lc.in_memory &&
+                ctx->mem_accums[static_cast<size_t>(l)]) {
+                auto& accum = ctx->mem_accums[static_cast<size_t>(l)];
+                stream_blobs[static_cast<size_t>(l)].resize(
+                    static_cast<size_t>(num_files));
+                for (int fi = 0; fi < num_files; ++fi) {
+                    stream_blobs[static_cast<size_t>(l)][static_cast<size_t>(fi)] =
+                        &accum->blobs[static_cast<size_t>(fi)];
+                }
+            }
+        }
+        ctx->handle->register_stream_blobs(std::move(stream_blobs));
+    }
+
+    // Keep SharedContext alive as long as the handle exists,
+    // so VirtualBlob pointers from peek_stream remain valid.
+    ctx->handle->set_context_keepalive(ctx);
 
     // Per-thread metrics
     ctx->all_metrics.resize(static_cast<size_t>(num_threads));

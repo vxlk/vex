@@ -122,26 +122,33 @@ py::tuple convert_results(std::vector<vex::LevelResult>& results, vex::DecodeMet
         if (lr.jpeg_stream.has_value()) {
             auto& jsr = lr.jpeg_stream.value();
 
-            // Extract blob offsets before releasing data pointers
+            // Move each VirtualBlob to the heap so a capsule can own it.
+            // The capsule destructor calls ~VirtualBlob which releases
+            // the VM reservation (VirtualFree / munmap).
             py::list blob_list;
             py::list offsets_list;
             for (auto& blob : jsr.blobs) {
-                // Move offsets to heap — capsule ownership, zero-copy
-                auto* offs_heap = new std::vector<int64_t>(std::move(blob.offsets));
+                auto* vb = new vex::VirtualBlob(std::move(blob));
+
+                // Offsets array — points into vb->offsets (capsule prevents
+                // the VirtualBlob from being destroyed while numpy is alive)
+                auto* offs_heap = new std::vector<int64_t>(std::move(vb->offsets));
                 auto offs_cap = py::capsule(
                     offs_heap, [](void* p) { delete static_cast<std::vector<int64_t>*>(p); });
                 py::array_t<int64_t> offs({static_cast<py::ssize_t>(offs_heap->size())},
                                           {sizeof(int64_t)}, offs_heap->data(), offs_cap);
                 offsets_list.append(offs);
 
-                // Release blob data to capsule — zero-copy
-                if (blob.data && blob.size > 0) {
-                    size_t sz = blob.size;
-                    uint8_t* ptr = blob.release();
-                    auto cap = py::capsule(ptr, [](void* p) { free(p); });
+                // Data array — capsule owns the VirtualBlob
+                if (vb->data && vb->size > 0) {
+                    size_t sz = vb->size;
+                    uint8_t* ptr = vb->data;
+                    auto cap = py::capsule(
+                        vb, [](void* p) { delete static_cast<vex::VirtualBlob*>(p); });
                     auto arr = py::array_t<uint8_t>({static_cast<py::ssize_t>(sz)}, {1}, ptr, cap);
                     blob_list.append(arr);
                 } else {
+                    delete vb;
                     blob_list.append(py::array_t<uint8_t>(0));
                 }
             }
@@ -300,6 +307,23 @@ PYBIND11_MODULE(_vex_core, m) {
                  return py::memoryview::from_memory(static_cast<const void*>(data),
                                                     static_cast<py::ssize_t>(out_size));
              })
+        .def("peek_stream",
+             [](vex::DecodeHandle& self, int file_index,
+                int level_index) -> py::object {
+                 auto sv = self.peek_stream(file_index, level_index);
+                 if (!sv.data || sv.current_size == 0) {
+                     return py::none();
+                 }
+                 // Return a read-only memoryview into the stable VirtualBlob
+                 // memory.  Safe as long as the DecodeHandle is alive (the
+                 // context_keepalive shared_ptr prevents the VirtualBlob from
+                 // being freed).
+                 return py::memoryview::from_memory(
+                     static_cast<const void*>(sv.data),
+                     static_cast<py::ssize_t>(sv.current_size));
+             },
+             py::arg("file_index"), py::arg("level_index"),
+             "Zero-copy view into the streaming JPEG buffer.")
         .def_property_readonly("progress",
                                [](vex::DecodeHandle& self) -> py::dict {
                                    auto p = self.progress();
@@ -322,7 +346,7 @@ PYBIND11_MODULE(_vex_core, m) {
         "batch_decode_async",
         [](const std::vector<std::string>& paths, const std::vector<vex::LevelConfig>& levels,
            int max_threads, bool keyframes_only, int frame_skip,
-           bool use_hw_accel) -> std::shared_ptr<vex::DecodeHandle> {
+           bool use_hw_accel, size_t blob_reservation) -> std::shared_ptr<vex::DecodeHandle> {
             vex::BatchConfig cfg{};
             cfg.paths = paths;
             cfg.levels = levels;
@@ -330,11 +354,13 @@ PYBIND11_MODULE(_vex_core, m) {
             cfg.keyframes_only = keyframes_only;
             cfg.frame_skip = frame_skip;
             cfg.use_hw_accel = use_hw_accel;
+            cfg.blob_reservation = blob_reservation;
 
             py::gil_scoped_release release;
             return vex::Orchestrator::batch_decode_async(cfg);
         },
         py::arg("paths"), py::arg("levels"), py::arg("max_threads") = 8,
-        py::arg("keyframes_only") = true, py::arg("frame_skip") = 1, py::arg("use_hw_accel") = true,
+        py::arg("keyframes_only") = true, py::arg("frame_skip") = 1,
+        py::arg("use_hw_accel") = true, py::arg("blob_reservation") = 0,
         "Decode video keyframes asynchronously. Returns DecodeHandle.");
 }

@@ -92,7 +92,40 @@ void DecodeHandle::set_results(std::vector<LevelResult> results, DecodeMetrics m
 }
 
 std::pair<std::vector<LevelResult>, DecodeMetrics> DecodeHandle::get_results() {
+    // Release streaming resources — VirtualBlobs have been moved into
+    // the final results, so stream pointers are now invalid.
+    stream_blobs_.clear();
+    context_keepalive_.reset();
     return {std::move(results_), std::move(metrics_)};
+}
+
+// ── Streaming API ───────────────────────────────────────────────────────────
+
+void DecodeHandle::register_stream_blobs(
+    std::vector<std::vector<VirtualBlob*>> blobs) {
+    stream_blobs_ = std::move(blobs);
+}
+
+DecodeHandle::StreamView DecodeHandle::peek_stream(
+    int file_index, int level_index) const {
+    StreamView sv{nullptr, 0};
+    if (level_index < 0 ||
+        level_index >= static_cast<int>(stream_blobs_.size()))
+        return sv;
+    auto& level = stream_blobs_[static_cast<size_t>(level_index)];
+    if (file_index < 0 ||
+        file_index >= static_cast<int>(level.size()))
+        return sv;
+    VirtualBlob* vb = level[static_cast<size_t>(file_index)];
+    if (!vb || !vb->data)
+        return sv;
+    sv.data = vb->data;
+    sv.current_size = vb->published_size.load(std::memory_order_acquire);
+    return sv;
+}
+
+void DecodeHandle::set_context_keepalive(std::shared_ptr<void> ctx) {
+    context_keepalive_ = std::move(ctx);
 }
 
 }  // namespace vex

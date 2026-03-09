@@ -525,3 +525,114 @@ class TestBatchDecodeAsync:
         assert len(results) == 1
         assert metrics.keyframes_decoded > 0
         assert metrics.files_processed == 1
+
+
+def _memoryview_address(mv: memoryview) -> int:
+    """Return the underlying C pointer address of a memoryview."""
+    import numpy as np
+    arr = np.frombuffer(mv, dtype=np.uint8)
+    return arr.ctypes.data
+
+
+@needs_native
+@needs_fixtures
+class TestPeekStreamStablePointer:
+    """Verify peek_stream returns the same base address on repeated calls."""
+
+    def test_peek_stream_same_address_after_done(self):
+        """After decode completes, repeated peek_stream calls return the
+        same pointer (VirtualBlob never moves)."""
+        path = _fixture_path("formats", "h264_mp4.mp4")
+        handle = batch_decode_async(
+            [path],
+            levels=[LevelConfig(width=192, height=192, quality=85)],
+            keyframes_only=True,
+        )
+
+        # Wait for completion
+        while not handle.done:
+            import time
+            time.sleep(0.001)
+
+        mv1 = handle.peek_stream(file_index=0, level_index=0)
+        mv2 = handle.peek_stream(file_index=0, level_index=0)
+        mv3 = handle.peek_stream(file_index=0, level_index=0)
+
+        assert mv1 is not None
+        assert len(mv1) > 0
+
+        addr1 = _memoryview_address(mv1)
+        addr2 = _memoryview_address(mv2)
+        addr3 = _memoryview_address(mv3)
+
+        assert addr1 == addr2
+        assert addr2 == addr3
+
+    def test_peek_stream_same_address_while_growing(self):
+        """peek_stream returns the same base address even as more data is
+        written (the VirtualBlob grows but the pointer never moves)."""
+        # Use every-frame decode for more data over time
+        path = _fixture_path("formats", "h264_mp4.mp4")
+        handle = batch_decode_async(
+            [path],
+            levels=[LevelConfig(width=320, height=240, quality=90)],
+            keyframes_only=False,
+        )
+
+        import time
+
+        addresses = []
+        sizes = []
+        # Poll until done, collecting addresses at each observation
+        for _ in range(200):
+            mv = handle.peek_stream(file_index=0, level_index=0)
+            if mv is not None and len(mv) > 0:
+                addresses.append(_memoryview_address(mv))
+                sizes.append(len(mv))
+            if handle.done:
+                # One final peek after done
+                mv = handle.peek_stream(file_index=0, level_index=0)
+                if mv is not None and len(mv) > 0:
+                    addresses.append(_memoryview_address(mv))
+                    sizes.append(len(mv))
+                break
+            time.sleep(0.002)
+
+        assert len(addresses) >= 2, "expected multiple peek observations"
+
+        # All addresses must be identical (stable pointer)
+        assert all(a == addresses[0] for a in addresses), (
+            f"pointer moved: {[hex(a) for a in addresses]}"
+        )
+
+        # Buffer should have grown over time
+        assert sizes[-1] >= sizes[0]
+
+    def test_peek_stream_multi_file_independent_addresses(self):
+        """Each file gets its own VirtualBlob with a distinct address."""
+        paths = [
+            _fixture_path("formats", "h264_mp4.mp4"),
+            _fixture_path("formats", "h264_mkv.mkv"),
+        ]
+        handle = batch_decode_async(
+            paths,
+            levels=[LevelConfig(width=192, height=192, quality=85)],
+            keyframes_only=True,
+        )
+
+        # Wait for completion
+        while not handle.done:
+            import time
+            time.sleep(0.001)
+
+        mv0 = handle.peek_stream(file_index=0, level_index=0)
+        mv1 = handle.peek_stream(file_index=1, level_index=0)
+
+        assert mv0 is not None and len(mv0) > 0
+        assert mv1 is not None and len(mv1) > 0
+
+        addr0 = _memoryview_address(mv0)
+        addr1 = _memoryview_address(mv1)
+
+        # Different files must have different VirtualBlob addresses
+        assert addr0 != addr1

@@ -162,6 +162,7 @@ set(VEX_SOURCES
     src/atlas.cpp
     src/disk_writer.cpp
     src/async_handle.cpp
+    src/virtual_blob.cpp
     src/orchestrator.cpp
 )
 

@@ -8,6 +8,8 @@
 #include <optional>
 #include <memory>
 
+#include "virtual_blob.h"
+
 namespace vex {
 
 // ── Enums ──────────────────────────────────────────────────────────────────
@@ -44,6 +46,9 @@ struct BatchConfig {
     bool keyframes_only = false;
     int frame_skip = 1;        // ignored if keyframes_only=true
     bool use_hw_accel = true;  // false → skip GPU decode, use software only
+    size_t blob_reservation = 0;  // VirtualBlob reservation per file/level.
+                                   // 0 = default (256 MB).  Only affects
+                                   // async in-memory JPEG_STREAM output.
 };
 
 // ── Keyframe index ─────────────────────────────────────────────────────────
@@ -145,91 +150,10 @@ struct DecodeMetrics {
     }
 };
 
-// ── Per-file output buffer ─────────────────────────────────────────────────
-
-struct FileBlob {
-    uint8_t* data = nullptr;
-    size_t size = 0;               // actual bytes written
-    size_t capacity = 0;           // allocated size
-    std::vector<int64_t> offsets;  // byte offset of each JPEG within data
-
-    FileBlob() = default;
-
-    FileBlob(FileBlob&& o) noexcept
-        : data(o.data), size(o.size), capacity(o.capacity), offsets(std::move(o.offsets)) {
-        o.data = nullptr;
-        o.size = 0;
-        o.capacity = 0;
-    }
-
-    FileBlob& operator=(FileBlob&& o) noexcept {
-        if (this != &o) {
-            free(data);
-            data = o.data;
-            size = o.size;
-            capacity = o.capacity;
-            offsets = std::move(o.offsets);
-            o.data = nullptr;
-            o.size = 0;
-            o.capacity = 0;
-        }
-        return *this;
-    }
-
-    ~FileBlob() { free(data); }
-
-    FileBlob(const FileBlob&) = delete;
-    FileBlob& operator=(const FileBlob&) = delete;
-
-    bool allocate(size_t cap) {
-        free(data);
-        data = static_cast<uint8_t*>(malloc(cap));
-        if (!data) {
-            capacity = 0;
-            size = 0;
-            return false;
-        }
-        capacity = cap;
-        size = 0;
-        offsets.clear();
-        return true;
-    }
-
-    bool ensure_remaining(size_t needed) {
-        if (size + needed <= capacity)
-            return true;
-        size_t new_cap = std::max(capacity * 2, size + needed);
-        uint8_t* p = static_cast<uint8_t*>(realloc(data, new_cap));
-        if (!p)
-            return false;
-        data = p;
-        capacity = new_cap;
-        return true;
-    }
-
-    void shrink_to_fit() {
-        if (size < capacity && size > 0) {
-            uint8_t* p = static_cast<uint8_t*>(realloc(data, size));
-            if (p) {
-                data = p;
-                capacity = size;
-            }
-        }
-    }
-
-    uint8_t* release() {
-        uint8_t* ptr = data;
-        data = nullptr;
-        size = 0;
-        capacity = 0;
-        return ptr;
-    }
-};
-
 // ── Result types ───────────────────────────────────────────────────────────
 
 struct JpegStreamResult {
-    std::vector<FileBlob> blobs;                   // one per source file
+    std::vector<VirtualBlob> blobs;                // one per source file
     std::vector<std::array<int64_t, 3>> metadata;  // [file_index, frame_number, pts_ms]
 };
 

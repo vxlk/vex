@@ -827,10 +827,50 @@ class DecodeHandle:
         """
         return self._handle.progress
 
+    def peek_stream(
+        self, file_index: int = 0, level_index: int = 0
+    ) -> Optional[memoryview]:
+        """Zero-copy view into the JPEG stream buffer for a file/level.
+
+        Returns a memoryview backed by stable virtual memory that never
+        moves.  The view's length reflects the current number of bytes
+        written; it may be larger on subsequent calls as more frames are
+        decoded.
+
+        Use ``drain_events()`` to discover the offset and size of each
+        JPEG within this buffer (``blob_offset`` and ``jpeg_size``).
+
+        The memoryview is valid while this DecodeHandle is alive.
+        After calling ``result()``, the underlying memory is released.
+
+        Returns:
+            A read-only memoryview, or None if unavailable.
+        """
+        return self._handle.peek_stream(file_index, level_index)
+
+    def peek_stream_numpy(
+        self, file_index: int = 0, level_index: int = 0
+    ) -> Optional[np.ndarray]:
+        """Zero-copy numpy view into the JPEG stream buffer.
+
+        Like ``peek_stream()`` but returns a numpy uint8 array instead
+        of a memoryview.  The array shares memory with the underlying
+        buffer (no copy).
+
+        Returns:
+            A numpy uint8 array, or None if unavailable.
+        """
+        mv = self.peek_stream(file_index, level_index)
+        if mv is None:
+            return None
+        return np.frombuffer(mv, dtype=np.uint8)
+
     def result(self) -> BatchResult:
         """Block until decode completes and return a :class:`BatchResult`.
 
-        Same return type as :func:`batch_decode`.
+        Same return type as :func:`batch_decode`.  After this call,
+        streaming views from ``peek_stream()`` are invalidated and
+        VirtualBlob reservations are released.
         """
         raw_results, raw_metrics = self._handle.result()
         level_results = [_wrap_level_result(r) for r in raw_results]
@@ -850,12 +890,20 @@ def batch_decode_async(
     keyframes_only: bool = False,
     frame_skip: int = 1,
     use_hw_accel: bool = True,
+    blob_reservation: int = 0,
 ) -> DecodeHandle:
     """Start an asynchronous batch decode operation.
 
     Same parameters as :func:`batch_decode`, but returns immediately with
     a :class:`DecodeHandle` that can be polled for progress and
     streamed events while decode threads are still running.
+
+    Args:
+        blob_reservation: Virtual memory reservation per file per level
+                          in bytes.  0 (default) = 256 MB.  Only affects
+                          in-memory JPEG stream output.  The reservation
+                          is address space only — physical memory is
+                          committed on demand as frames are written.
 
     Returns:
         A :class:`DecodeHandle`.  Call ``handle.result()`` to block until
@@ -875,6 +923,7 @@ def batch_decode_async(
         keyframes_only,
         frame_skip,
         use_hw_accel,
+        blob_reservation,
     )
 
     return DecodeHandle(native_handle)

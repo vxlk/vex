@@ -1,10 +1,12 @@
 #pragma once
 
 #include "types.h"
+#include "virtual_blob.h"
 #include <vector>
 #include <atomic>
 #include <mutex>
 #include <condition_variable>
+#include <memory>
 
 namespace vex {
 
@@ -42,6 +44,24 @@ public:
     void set_results(std::vector<LevelResult> results, DecodeMetrics metrics);
     std::pair<std::vector<LevelResult>, DecodeMetrics> get_results();
 
+    // ── Streaming API (zero-copy views into VirtualBlob) ────────────────────
+
+    // Register VirtualBlob pointers for streaming access.
+    // blobs[level_index][file_index] = non-owning pointer to VirtualBlob.
+    void register_stream_blobs(
+        std::vector<std::vector<VirtualBlob*>> blobs);
+
+    // Zero-copy view into the streaming JPEG buffer.
+    struct StreamView {
+        const uint8_t* data;       // stable base pointer (never moves)
+        size_t current_size;       // atomically-published byte count
+    };
+    StreamView peek_stream(int file_index, int level_index) const;
+
+    // Keep the SharedContext alive as long as this handle exists,
+    // so VirtualBlob pointers remain valid.
+    void set_context_keepalive(std::shared_ptr<void> ctx);
+
 private:
     int num_threads_;
     int total_files_;
@@ -72,6 +92,14 @@ private:
     // Final results
     std::vector<LevelResult> results_;
     DecodeMetrics metrics_;
+
+    // Streaming: non-owning pointers to VirtualBlobs.
+    // Indexed as stream_blobs_[level][file].
+    std::vector<std::vector<VirtualBlob*>> stream_blobs_;
+
+    // Prevents SharedContext (which owns the VirtualBlobs) from being
+    // destroyed while this handle is alive.
+    std::shared_ptr<void> context_keepalive_;
 };
 
 }  // namespace vex
