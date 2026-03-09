@@ -13,14 +13,15 @@ namespace vex {
 
 // ── Constructor ─────────────────────────────────────────────────────────────
 
-FrameScaler::FrameScaler(int src_w, int src_h, int dst_w, int dst_h)
-    : identity_(src_w == dst_w && src_h == dst_h),
+FrameScaler::FrameScaler(int src_w, int src_h, int src_fmt, int dst_w, int dst_h)
+    : identity_(src_w == dst_w && src_h == dst_h &&
+                (src_fmt == AV_PIX_FMT_YUV420P || src_fmt == AV_PIX_FMT_YUVJ420P)),
       src_w_(src_w),
       src_h_(src_h),
       dst_w_(dst_w),
       dst_h_(dst_h) {
     if (!identity_) {
-        sws_ctx_ = sws_getContext(src_w, src_h, AV_PIX_FMT_YUV420P, dst_w, dst_h,
+        sws_ctx_ = sws_getContext(src_w, src_h, static_cast<AVPixelFormat>(src_fmt), dst_w, dst_h,
                                   AV_PIX_FMT_YUV420P, SWS_BILINEAR, nullptr, nullptr, nullptr);
     }
 }

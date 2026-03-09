@@ -30,6 +30,8 @@ True per-format decode: both vex and FFmpeg process one file at a time.
 
 ![vex per-file native benchmark](assets/benchmark_perfile_native.png)
 
+**Note on MXF/GXF native results:** At q100, vex appears slower than FFmpeg on MXF and GXF because the two tools produce different quality output. FFmpeg's built-in MJPEG encoder has a quality ceiling around TurboJPEG q91 — its `-q:v 1` and `-q:v 2` produce identical files. vex at q100 uses TurboJPEG's accurate DCT path and produces ~2.2x larger (higher fidelity) JPEGs, so the extra time is spent encoding more data, not decoding slower. At thumbnail sizes (192x192 q85) where encoding cost is negligible, vex is faster across all formats.
+
 Regenerate with `./dev.sh bench` (or `./dev.sh bench --runs 3` for best-of-3).
 
 ## Features

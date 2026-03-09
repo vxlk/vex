@@ -7,7 +7,6 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libavutil/frame.h>
-#include <libswscale/swscale.h>
 }
 
 #include <string>
@@ -18,7 +17,9 @@ class FileDecoder {
 public:
     // Opens the file and initialises the video decoder.
     // hw may be nullptr for software-only decode.
-    FileDecoder(const std::string& path, HWAccelContext* hw = nullptr);
+    // decode_threads: 0 = auto (all cores), >0 = limit FFmpeg's internal
+    // slice/frame threading to this many threads.
+    FileDecoder(const std::string& path, HWAccelContext* hw = nullptr, int decode_threads = 0);
     ~FileDecoder();
 
     FileDecoder(const FileDecoder&) = delete;
@@ -33,7 +34,7 @@ public:
     // Extract keyframe index via the fallback chain.
     KeyframeIndex scan_keyframes();
 
-    // Seek to keyframe and decode one I-frame into out_frame (YUV420P).
+    // Seek to keyframe and decode one I-frame into out_frame (native pix fmt).
     bool seek_and_decode(const KeyframeInfo& kf, AVFrame* out_frame);
 
     // ── Sequential decode API ──────────────────────────────────────────────
@@ -61,7 +62,8 @@ public:
     int64_t file_size() const { return file_size_; }
 
 private:
-    // Shared post-decode processing: HW transfer + pixel format conversion.
+    // Shared post-decode processing: HW frame transfer.
+    // Pixel format conversion is deferred to FrameScaler.
     bool finalize_frame(AVFrame* decode_target, AVFrame* out_frame);
 
     AVFormatContext* fmt_ctx_ = nullptr;
@@ -76,14 +78,6 @@ private:
     std::string codec_name_;
     AVCodecID codec_id_ = AV_CODEC_ID_NONE;
     bool valid_ = false;
-
-    // Cached pixel-format conversion context (Stage 1: avoids per-frame alloc).
-    // Used when HW decode produces NV12 or other non-YUV420P output.
-    SwsContext* convert_ctx_ = nullptr;
-    AVFrame* convert_frame_ = nullptr;
-    int convert_src_fmt_ = AV_PIX_FMT_NONE;
-    int convert_src_w_ = 0;
-    int convert_src_h_ = 0;
 };
 
 }  // namespace vex

@@ -49,13 +49,33 @@ ASSETS_DIR = PROJECT_ROOT / "assets"
 # ---------------------------------------------------------------------------
 
 
+def _quality_to_ffmpeg_qv(quality: int) -> int:
+    """Map TurboJPEG quality (1-100) to FFmpeg MJPEG ``-q:v`` (1-31).
+
+    Empirically calibrated at 720x576 MPEG-2 content by matching output
+    file sizes between TurboJPEG and FFmpeg's MJPEG encoder.
+
+    FFmpeg's MJPEG encoder maxes out at ``-q:v 1`` which produces output
+    roughly equivalent to TurboJPEG quality 91.  For higher TJ qualities
+    we still use ``-q:v 1`` (FFmpeg's best).
+    """
+    if quality >= 91:
+        return 1
+    return max(2, round((100 - quality) / 5))
+
+
 def ffmpeg_pipe_decode(
-    input_path: str, width: int | None = None, height: int | None = None
+    input_path: str,
+    width: int | None = None,
+    height: int | None = None,
+    quality: int = 85,
 ) -> tuple[float, int]:
     """Spawn FFmpeg, pipe MJPEG to stdout, scan markers, build index.
 
     Returns (elapsed_seconds, frame_count).
     """
+    qv = _quality_to_ffmpeg_qv(quality)
+
     cmd = [
         str(FFMPEG_BIN),
         "-hide_banner",
@@ -72,7 +92,7 @@ def ffmpeg_pipe_decode(
 
     cmd += [
         "-q:v",
-        "2",
+        str(qv),
         "-f",
         "image2pipe",
         "-vcodec",
@@ -187,7 +207,7 @@ def run_batch_benchmark(
         ff_per_file: list[tuple[float, int]] = []
         ff_total = 0.0
         for _, path in fixtures:
-            ft_i, fc_i = ffmpeg_pipe_decode(path, width, height)
+            ft_i, fc_i = ffmpeg_pipe_decode(path, width, height, quality)
             ff_per_file.append((ft_i, fc_i))
             ff_total += ft_i
         if ff_total < best_ff:
@@ -265,7 +285,7 @@ def run_perfile_benchmark(
 
         for i, (_, path) in enumerate(fixtures):
             vt_i, vf_i = vex_single_decode(path, width, height, quality)
-            ft_i, fc_i = ffmpeg_pipe_decode(path, width, height)
+            ft_i, fc_i = ffmpeg_pipe_decode(path, width, height, quality)
 
             vex_total += vt_i
             ff_total += ft_i

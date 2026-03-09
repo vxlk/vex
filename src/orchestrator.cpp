@@ -120,6 +120,9 @@ struct SharedContext {
     // Per-thread metrics
     std::vector<std::shared_ptr<ThreadMetrics>> all_metrics;
 
+    // Per-codec decode thread budget (cores / workers, min 1)
+    int decode_threads = 0;
+
     // Wall-clock start
     std::chrono::high_resolution_clock::time_point wall_start;
 
@@ -175,7 +178,7 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
             if (hw_attempt == 1 && !hw_compatible)
                 break;
 
-            FileDecoder decoder_file(path, use_hw);
+            FileDecoder decoder_file(path, use_hw, ctx->decode_threads);
             if (!decoder_file.is_valid()) {
                 if (hw_attempt == 0 && hw_ptr)
                     continue;  // retry with software
@@ -220,10 +223,11 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
                     lm.output_format =
                         (lc.output == OutputFormat::JPEG_STREAM) ? "jpeg_stream" : "sprite_atlas";
 
-                    // Create/reuse scaler for this level
+                    // Create/reuse scaler for this level (src format from decoded frame
+                    // so the scaler combines pixel format conversion + downscale in one pass)
                     if (!scalers[static_cast<size_t>(l)]) {
                         scalers[static_cast<size_t>(l)] =
-                            std::make_unique<FrameScaler>(src_w, src_h, lc.width, lc.height);
+                            std::make_unique<FrameScaler>(src_w, src_h, decode_frame->format, lc.width, lc.height);
                     }
 
                     auto& scaler = *scalers[static_cast<size_t>(l)];
@@ -556,7 +560,7 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
                 }
 
                 // Sequential fallback
-                FileDecoder fallback_dec(path, nullptr);
+                FileDecoder fallback_dec(path, nullptr, ctx->decode_threads);
                 if (fallback_dec.is_valid()) {
                     int fb_src_w = fallback_dec.source_width();
                     int fb_src_h = fallback_dec.source_height();
@@ -598,7 +602,7 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
 
                             if (!fb_scalers[static_cast<size_t>(l)]) {
                                 fb_scalers[static_cast<size_t>(l)] = std::make_unique<FrameScaler>(
-                                    fb_src_w, fb_src_h, lc.width, lc.height);
+                                    fb_src_w, fb_src_h, decode_frame->format, lc.width, lc.height);
                             }
                             auto& scaler = *fb_scalers[static_cast<size_t>(l)];
 
@@ -820,11 +824,19 @@ std::shared_ptr<DecodeHandle> Orchestrator::batch_decode_async(const BatchConfig
     if (num_threads <= 0)
         num_threads = 1;
 
+    // Divide CPU cores between worker threads and per-codec decode threads.
+    // With N workers, each codec gets cores/N threads for slice/frame threading.
+    // This avoids oversubscription (N workers × auto threads = N² threads).
+    // When there's only 1 worker, use 0 (FFmpeg auto-detect) so that
+    // codec-specific heuristics pick the optimal thread count.
+    int decode_threads = (num_threads == 1) ? 0 : std::max(1, hw_threads / num_threads);
+
     // Build shared context (heap-allocated, shared among all threads)
     auto ctx = std::make_shared<SharedContext>();
     ctx->config = config;
     ctx->num_levels = num_levels;
     ctx->num_files = num_files;
+    ctx->decode_threads = decode_threads;
     ctx->wall_start = std::chrono::high_resolution_clock::now();
 
     // Create shared handle

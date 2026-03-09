@@ -8,14 +8,13 @@ extern "C" {
 #include <libavutil/imgutils.h>
 #include <libavutil/pixfmt.h>
 #include <libavutil/log.h>
-#include <libswscale/swscale.h>
 }
 
 namespace vex {
 
 // ── Constructor ─────────────────────────────────────────────────────────────
 
-FileDecoder::FileDecoder(const std::string& path, HWAccelContext* hw) {
+FileDecoder::FileDecoder(const std::string& path, HWAccelContext* hw, int decode_threads) {
     // Step 1: Open input
     int ret = avformat_open_input(&fmt_ctx_, path.c_str(), nullptr, nullptr);
     if (ret < 0) {
@@ -106,7 +105,16 @@ FileDecoder::FileDecoder(const std::string& path, HWAccelContext* hw) {
         hw_accel_ = hw;
     }
 
-    // Step 9: Open codec.  Suppress noisy log output during open — FFmpeg
+    // Step 9: Enable multi-threaded decode.  Codecs like DV support slice
+    // threading (parallel DCT blocks within a frame) which gives a 2-3x
+    // decode speedup.  thread_count=0 tells FFmpeg to auto-detect the
+    // optimal thread count based on CPU cores and codec capabilities.
+    // When the caller specifies a limit (decode_threads > 0), we cap the
+    // count to avoid oversubscription when multiple workers each open
+    // their own codec context.
+    codec_ctx_->thread_count = decode_threads;
+
+    // Step 10: Open codec.  Suppress noisy log output during open — FFmpeg
     // logs warnings for every HW format it tries and rejects.
     int saved_level = av_log_get_level();
     if (hw)
@@ -145,12 +153,6 @@ FileDecoder::~FileDecoder() {
     if (hw_frame_) {
         av_frame_free(&hw_frame_);
     }
-    if (convert_frame_) {
-        av_frame_free(&convert_frame_);
-    }
-    if (convert_ctx_) {
-        sws_freeContext(convert_ctx_);
-    }
     if (codec_ctx_) {
         avcodec_free_context(&codec_ctx_);
     }
@@ -186,53 +188,9 @@ bool FileDecoder::finalize_frame(AVFrame* decode_target, AVFrame* out_frame) {
         av_frame_move_ref(out_frame, decode_target);
     }
 
-    // Convert non-YUV420P frames (e.g. NV12 from HW decode).
-    // Stage 1: Cache the SwsContext and scratch frame across calls to avoid
-    // per-frame allocation overhead (sws_getContext is ~10-100µs).
-    if (out_frame->format != AV_PIX_FMT_YUV420P && out_frame->format != AV_PIX_FMT_YUVJ420P) {
-        int src_fmt = out_frame->format;
-        int src_w = out_frame->width;
-        int src_h = out_frame->height;
-
-        // Rebuild the conversion context if the source format or dimensions
-        // changed (extremely rare — only if a stream changes mid-file).
-        if (!convert_ctx_ || src_fmt != convert_src_fmt_ || src_w != convert_src_w_ ||
-            src_h != convert_src_h_) {
-            if (convert_ctx_)
-                sws_freeContext(convert_ctx_);
-            if (convert_frame_)
-                av_frame_free(&convert_frame_);
-
-            convert_ctx_ =
-                sws_getContext(src_w, src_h, static_cast<AVPixelFormat>(src_fmt), src_w, src_h,
-                               AV_PIX_FMT_YUV420P, SWS_BILINEAR, nullptr, nullptr, nullptr);
-
-            if (!convert_ctx_) {
-                convert_src_fmt_ = AV_PIX_FMT_NONE;
-                av_frame_unref(out_frame);
-                return false;
-            }
-
-            convert_frame_ = av_frame_alloc();
-            convert_frame_->format = AV_PIX_FMT_YUV420P;
-            convert_frame_->width = src_w;
-            convert_frame_->height = src_h;
-            av_frame_get_buffer(convert_frame_, 0);
-
-            convert_src_fmt_ = src_fmt;
-            convert_src_w_ = src_w;
-            convert_src_h_ = src_h;
-        }
-
-        // Make the scratch frame writable (may be a no-op if refcount == 1).
-        av_frame_make_writable(convert_frame_);
-
-        sws_scale(convert_ctx_, out_frame->data, out_frame->linesize, 0, src_h,
-                  convert_frame_->data, convert_frame_->linesize);
-
-        av_frame_unref(out_frame);
-        av_frame_ref(out_frame, convert_frame_);
-    }
+    // Pixel format conversion (e.g. YUV411P, NV12) is deferred to the
+    // FrameScaler which combines it with downscaling in a single sws_scale
+    // pass, avoiding a redundant full-resolution intermediate conversion.
 
     return true;
 }
