@@ -1,5 +1,5 @@
 #include "decoder.h"
-#include "index_scanner.h"
+#include "keyframe_index_scanner.h"
 
 extern "C" {
 #include <libavformat/avformat.h>

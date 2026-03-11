@@ -142,106 +142,40 @@ AVPixelFormat hw_get_format(AVCodecContext* ctx, const AVPixelFormat* pix_fmts) 
 // ── can_hw_decode ───────────────────────────────────────────────────────────
 
 bool can_hw_decode(AVHWDeviceType device_type, AVCodecID codec_id) {
-    // Static compatibility tables based on common GPU capabilities.
-    // These are conservative — a codec listed here should work on
-    // virtually all GPUs of that family.  Unlisted codecs skip HW
-    // decode and fall back to software without a wasted attempt.
+    // Query FFmpeg's codec hw_config list directly instead of maintaining
+    // a static table.  avcodec_find_decoder + avcodec_get_hw_config are
+    // pure in-memory lookups (no I/O, no device probing).
+    const AVCodec* codec = avcodec_find_decoder(codec_id);
+    if (!codec) return false;
 
-    switch (device_type) {
-        case AV_HWDEVICE_TYPE_CUDA:
-            // NVIDIA NVDEC — varies by GPU generation but these are
-            // supported on Maxwell (GM206+) and newer.
-            switch (codec_id) {
-                case AV_CODEC_ID_H264:
-                case AV_CODEC_ID_HEVC:
-                case AV_CODEC_ID_VP8:
-                case AV_CODEC_ID_VP9:
-                case AV_CODEC_ID_MPEG1VIDEO:
-                case AV_CODEC_ID_MPEG2VIDEO:
-                case AV_CODEC_ID_MPEG4:
-                case AV_CODEC_ID_VC1:
-                case AV_CODEC_ID_AV1:
-                    return true;
-                default:
-                    return false;
-            }
-
-        case AV_HWDEVICE_TYPE_D3D11VA:
-            // Windows D3D11 Video Acceleration — Intel/AMD/NVIDIA.
-            // Codec support depends on GPU but these are near-universal.
-            switch (codec_id) {
-                case AV_CODEC_ID_H264:
-                case AV_CODEC_ID_HEVC:
-                case AV_CODEC_ID_VP9:
-                case AV_CODEC_ID_MPEG2VIDEO:
-                case AV_CODEC_ID_VC1:
-                case AV_CODEC_ID_AV1:
-                    return true;
-                default:
-                    return false;
-            }
-
-        case AV_HWDEVICE_TYPE_QSV:
-            // Intel Quick Sync Video (needs oneVPL / Media SDK runtime).
-            switch (codec_id) {
-                case AV_CODEC_ID_H264:
-                case AV_CODEC_ID_HEVC:
-                case AV_CODEC_ID_VP9:
-                case AV_CODEC_ID_MPEG2VIDEO:
-                case AV_CODEC_ID_VP8:
-                case AV_CODEC_ID_AV1:
-                case AV_CODEC_ID_MJPEG:
-                    return true;
-                default:
-                    return false;
-            }
-
-        case AV_HWDEVICE_TYPE_VAAPI:
-            // Linux VA-API — Intel/AMD.  Conservative list.
-            switch (codec_id) {
-                case AV_CODEC_ID_H264:
-                case AV_CODEC_ID_HEVC:
-                case AV_CODEC_ID_VP9:
-                case AV_CODEC_ID_MPEG2VIDEO:
-                case AV_CODEC_ID_VC1:
-                case AV_CODEC_ID_AV1:
-                    return true;
-                default:
-                    return false;
-            }
-
-        default:
-            return false;
+    for (int i = 0;; ++i) {
+        const AVCodecHWConfig* config = avcodec_get_hw_config(codec, i);
+        if (!config) break;
+        if (config->device_type == device_type &&
+            (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX))
+            return true;
     }
+    return false;
 }
 
 // ── get_cuvid_decoder_name ──────────────────────────────────────────────────
 
 const char* get_cuvid_decoder_name(AVCodecID codec_id) {
-    switch (codec_id) {
-        case AV_CODEC_ID_H264:
-            return "h264_cuvid";
-        case AV_CODEC_ID_HEVC:
-            return "hevc_cuvid";
-        case AV_CODEC_ID_VP8:
-            return "vp8_cuvid";
-        case AV_CODEC_ID_VP9:
-            return "vp9_cuvid";
-        case AV_CODEC_ID_MPEG1VIDEO:
-            return "mpeg1_cuvid";
-        case AV_CODEC_ID_MPEG2VIDEO:
-            return "mpeg2_cuvid";
-        case AV_CODEC_ID_MPEG4:
-            return "mpeg4_cuvid";
-        case AV_CODEC_ID_VC1:
-            return "vc1_cuvid";
-        case AV_CODEC_ID_AV1:
-            return "av1_cuvid";
-        case AV_CODEC_ID_MJPEG:
-            return "mjpeg_cuvid";
-        default:
-            return nullptr;
+    // Scan FFmpeg's codec registry for a decoder matching this codec_id
+    // whose name ends with "_cuvid".  This avoids a hardcoded table and
+    // automatically picks up new cuvid decoders added to FFmpeg.
+    // av_codec_iterate is a pure in-memory scan (~500 entries).
+    void* iter = nullptr;
+    const AVCodec* c;
+    while ((c = av_codec_iterate(&iter)) != nullptr) {
+        if (c->id != codec_id) continue;
+        if (!av_codec_is_decoder(c)) continue;
+        const char* name = c->name;
+        size_t len = strlen(name);
+        if (len > 6 && strcmp(name + len - 6, "_cuvid") == 0)
+            return name;  // static string owned by FFmpeg
     }
+    return nullptr;
 }
 
 }  // namespace vex

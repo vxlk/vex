@@ -6,7 +6,7 @@
 #include "disk_writer.h"
 #include "metrics.h"
 #include "hw_accel.h"
-#include "index_scanner.h"
+#include "keyframe_index_scanner.h"
 #include "virtual_blob.h"
 
 #include <thread>

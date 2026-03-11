@@ -155,7 +155,7 @@ find_package(Python REQUIRED COMPONENTS Interpreter Development NumPy)
 set(VEX_SOURCES
     src/metrics.cpp
     src/hw_accel.cpp
-    src/index_scanner.cpp
+    src/keyframe_index_scanner.cpp
     src/scaler.cpp
     src/encoder.cpp
     src/decoder.cpp
