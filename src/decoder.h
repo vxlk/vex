@@ -60,6 +60,7 @@ public:
     int source_height() const { return height_; }
     std::string codec_name() const { return codec_name_; }
     int64_t file_size() const { return file_size_; }
+    int decode_thread_count() const { return codec_ctx_ ? codec_ctx_->thread_count : 0; }
 
 private:
     // Shared post-decode processing: HW frame transfer.

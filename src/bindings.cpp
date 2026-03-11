@@ -4,6 +4,7 @@
 
 #include "orchestrator.h"
 #include "async_handle.h"
+#include "decoder.h"
 
 namespace py = pybind11;
 
@@ -340,6 +341,21 @@ PYBIND11_MODULE(_vex_core, m) {
             auto pair = self.get_results();
             return convert_results(pair.first, pair.second);
         });
+
+    // ── probe_decode_threads ──────────────────────────────────────────────
+    m.def(
+        "probe_decode_threads",
+        [](const std::string& path, int decode_threads) -> int {
+            py::gil_scoped_release release;
+            vex::FileDecoder dec(path, nullptr, decode_threads);
+            if (!dec.is_valid())
+                return 0;
+            return dec.decode_thread_count();
+        },
+        py::arg("path"), py::arg("decode_threads") = 0,
+        "Probe how many threads FFmpeg will use to decode a video file.\n"
+        "decode_threads: 0 = auto (FFmpeg decides), >0 = request that many.\n"
+        "Returns the actual thread count chosen by FFmpeg (1 = single-threaded codec).");
 
     // ── batch_decode_async ──────────────────────────────────────────────────
     m.def(

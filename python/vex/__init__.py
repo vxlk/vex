@@ -930,6 +930,34 @@ def batch_decode_async(
 
 
 # ---------------------------------------------------------------------------
+# Probe decoder threading
+# ---------------------------------------------------------------------------
+
+
+def probe_decode_threads(path: str, decode_threads: int = 0) -> int:
+    """Return how many threads FFmpeg will use to decode a video file.
+
+    Opens the file, initialises the codec, and queries the actual thread
+    count chosen by FFmpeg.  A return value of ``1`` means the codec does
+    not support multi-threaded decoding.
+
+    Args:
+        path:           Path to a video file.
+        decode_threads: Thread count hint.  ``0`` (default) lets FFmpeg
+                        auto-detect based on CPU cores and codec
+                        capabilities.  A positive value requests at most
+                        that many threads (FFmpeg may use fewer if the
+                        codec doesn't support it).
+
+    Returns:
+        The actual decoder thread count (``>= 1``), or ``0`` if the file
+        could not be opened / decoded.
+    """
+    _vex_core = _load_native()
+    return _vex_core.probe_decode_threads(path, decode_threads)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -945,6 +973,7 @@ __all__ = [
     "DecodeHandle",
     "batch_decode",
     "batch_decode_async",
+    "probe_decode_threads",
 ]
 
 __version__ = "0.1.0"
