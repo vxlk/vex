@@ -348,7 +348,7 @@ PYBIND11_MODULE(_vex_core, m) {
         [](const std::string& path, int decode_threads) -> int {
             py::gil_scoped_release release;
             vex::FileDecoder dec(path, nullptr, decode_threads);
-            if (!dec.is_valid())
+            if (!dec.is_valid() || !dec.is_video_format())
                 return 0;
             return dec.decode_thread_count();
         },

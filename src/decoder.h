@@ -62,6 +62,19 @@ public:
     int64_t file_size() const { return file_size_; }
     int decode_thread_count() const { return codec_ctx_ ? codec_ctx_->thread_count : 0; }
 
+    // True if the demuxer is a video container (not a still-image pipe).
+    // Image formats use demuxers like "png_pipe", "image2", etc.
+    bool is_video_format() const {
+        if (!fmt_ctx_ || !fmt_ctx_->iformat || !fmt_ctx_->iformat->name)
+            return false;
+        std::string name = fmt_ctx_->iformat->name;
+        if (name == "image2" || name == "image2pipe")
+            return false;
+        if (name.size() > 5 && name.compare(name.size() - 5, 5, "_pipe") == 0)
+            return false;
+        return true;
+    }
+
 private:
     // Shared post-decode processing: HW frame transfer.
     // Pixel format conversion is deferred to FrameScaler.

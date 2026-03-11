@@ -957,6 +957,33 @@ def probe_decode_threads(path: str, decode_threads: int = 0) -> int:
     return _vex_core.probe_decode_threads(path, decode_threads)
 
 
+def probe_batch_threads(
+    paths: Union[str, List[str]],
+    *,
+    max_threads: int = 8,
+) -> int:
+    """Return the number of threads a batch decode job will use.
+
+    Accepts a directory path or a list of file paths. Sums per-file
+    decoder thread counts capped to *max_threads*.
+    """
+    if isinstance(paths, str):
+        p = os.path.abspath(paths)
+        if os.path.isdir(p):
+            file_list = [
+                os.path.join(p, f)
+                for f in sorted(os.listdir(p))
+                if os.path.isfile(os.path.join(p, f))
+            ]
+        else:
+            file_list = [p]
+    else:
+        file_list = list(paths)
+
+    total = sum(probe_decode_threads(fp) for fp in file_list)
+    return min(total, max_threads)
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -974,6 +1001,7 @@ __all__ = [
     "batch_decode",
     "batch_decode_async",
     "probe_decode_threads",
+    "probe_batch_threads",
 ]
 
 __version__ = "0.1.0"
