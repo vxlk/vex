@@ -690,7 +690,7 @@ def batch_decode(
     paths: List[str],
     levels: Optional[List[LevelConfig]] = None,
     *,
-    max_threads: int = 8,
+    max_threads: int = 0,
     keyframes_only: bool = False,
     frame_skip: int = 1,
     use_hw_accel: bool = True,
@@ -710,8 +710,10 @@ def batch_decode(
                 native-resolution JPEG stream at quality 100.  Multiple
                 levels produce multiple output resolutions from a single
                 decode pass.
-        max_threads:    Maximum worker threads.  Clamped to
-                        ``min(max_threads, len(paths), cpu_count)``.
+        max_threads:    Maximum worker threads.  ``0`` (default) lets
+                        FFmpeg auto-detect based on hardware concurrency.
+                        Clamped to ``min(max_threads, len(paths),
+                        cpu_count)`` when a positive value is given.
         keyframes_only: If ``True``, only I-frames are decoded.
         frame_skip:     Decode every *N*-th frame.  Only used when
                         ``keyframes_only=False``.
@@ -886,7 +888,7 @@ def batch_decode_async(
     paths: List[str],
     levels: Optional[List[LevelConfig]] = None,
     *,
-    max_threads: int = 8,
+    max_threads: int = 0,
     keyframes_only: bool = False,
     frame_skip: int = 1,
     use_hw_accel: bool = True,
@@ -960,7 +962,7 @@ def probe_decode_threads(path: str, decode_threads: int = 0) -> int:
 def probe_batch_threads(
     paths: Union[str, List[str]],
     *,
-    max_threads: int = 8,
+    max_threads: int = 0,
 ) -> int:
     """Return the number of threads a batch decode job will use.
 
@@ -981,7 +983,9 @@ def probe_batch_threads(
         file_list = list(paths)
 
     total = sum(probe_decode_threads(fp) for fp in file_list)
-    return min(total, max_threads)
+    if max_threads > 0:
+        return min(total, max_threads)
+    return total
 
 
 # ---------------------------------------------------------------------------

@@ -822,11 +822,12 @@ std::shared_ptr<DecodeHandle> Orchestrator::batch_decode_async(const BatchConfig
     const int num_files = static_cast<int>(config.paths.size());
     const int num_levels = static_cast<int>(config.levels.size());
 
-    // Determine thread count
+    // Determine thread count (max_threads == 0 means auto: use hw concurrency)
     int hw_threads = static_cast<int>(std::thread::hardware_concurrency());
     if (hw_threads <= 0)
         hw_threads = 4;
-    int num_threads = std::min({config.max_threads, num_files, hw_threads});
+    int max_t = (config.max_threads <= 0) ? hw_threads : config.max_threads;
+    int num_threads = std::min({max_t, num_files, hw_threads});
     if (num_threads <= 0)
         num_threads = 1;
 

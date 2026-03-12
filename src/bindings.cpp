@@ -264,7 +264,7 @@ PYBIND11_MODULE(_vex_core, m) {
             // GIL is re-acquired here; safe to create Python objects
             return convert_results(results, metrics);
         },
-        py::arg("paths"), py::arg("levels"), py::arg("max_threads") = 8,
+        py::arg("paths"), py::arg("levels"), py::arg("max_threads") = 0,
         py::arg("keyframes_only") = true, py::arg("frame_skip") = 1, py::arg("use_hw_accel") = true,
         "Decode video keyframes synchronously. Returns (results_list, metrics_dict).");
 
@@ -375,7 +375,7 @@ PYBIND11_MODULE(_vex_core, m) {
             py::gil_scoped_release release;
             return vex::Orchestrator::batch_decode_async(cfg);
         },
-        py::arg("paths"), py::arg("levels"), py::arg("max_threads") = 8,
+        py::arg("paths"), py::arg("levels"), py::arg("max_threads") = 0,
         py::arg("keyframes_only") = true, py::arg("frame_skip") = 1,
         py::arg("use_hw_accel") = true, py::arg("blob_reservation") = 0,
         "Decode video keyframes asynchronously. Returns DecodeHandle.");

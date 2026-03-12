@@ -42,7 +42,7 @@ struct LevelConfig {
 struct BatchConfig {
     std::vector<std::string> paths;
     std::vector<LevelConfig> levels;
-    int max_threads = 8;
+    int max_threads = 0;  // 0 = auto (use hardware concurrency)
     bool keyframes_only = false;
     int frame_skip = 1;        // ignored if keyframes_only=true
     bool use_hw_accel = true;  // false → skip GPU decode, use software only
