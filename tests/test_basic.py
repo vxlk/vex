@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
@@ -96,6 +97,95 @@ class TestCachedLevel:
         bad.write_bytes(b"\x00" * 64)
         with pytest.raises(ValueError, match="Invalid cache magic"):
             CachedLevel(str(bad))
+
+
+class TestPyInstallerHook:
+    """Tests for PyInstaller hook and frozen-app compatibility."""
+
+    def test_hook_file_exports(self):
+        """hook-vex.py should define binaries, datas, and hiddenimports."""
+        hook_path = PROJECT_ROOT / "pyinstaller" / "hook-vex.py"
+        assert hook_path.is_file(), f"Hook file not found: {hook_path}"
+
+        # Execute the hook in an isolated namespace; collect_dynamic_libs
+        # may return an empty list if vex isn't installed, which is fine —
+        # we just need the hook to not crash and to export the right names.
+        ns = {}
+        try:
+            exec(compile(hook_path.read_text(), str(hook_path), "exec"), ns)
+        except ImportError:
+            pytest.skip("PyInstaller not installed")
+
+        assert "hiddenimports" in ns
+        assert "vex._vex_core" in ns["hiddenimports"]
+        assert "numpy" in ns["hiddenimports"]
+        assert "binaries" in ns
+        assert isinstance(ns["binaries"], list)
+        assert "datas" in ns
+        assert isinstance(ns["datas"], list)
+
+    def test_meipass_added_as_dll_directory(self):
+        """When sys._MEIPASS is set, _load_native should add it as a DLL dir."""
+        if not hasattr(os, "add_dll_directory"):
+            pytest.skip("os.add_dll_directory not available on this platform")
+
+        fake_meipass = r"C:\Users\test\AppData\Local\Temp\_MEI12345"
+        added_dirs = []
+
+        original = os.add_dll_directory
+
+        def spy(path):
+            added_dirs.append(path)
+            # Don't actually register fake paths — just record the call
+            if os.path.isdir(path):
+                return original(path)
+            return mock.MagicMock()
+
+        with mock.patch.object(os, "add_dll_directory", side_effect=spy):
+            with mock.patch.object(sys, "_MEIPASS", fake_meipass, create=True):
+                try:
+                    from vex import _load_native
+                    _load_native()
+                except ImportError:
+                    pass  # expected — _vex_core not built
+
+        assert fake_meipass in added_dirs, (
+            f"_MEIPASS not added as DLL directory; got: {added_dirs}"
+        )
+
+    def test_no_meipass_no_extra_dll_dir(self):
+        """Without sys._MEIPASS, only the package dir should be added."""
+        if not hasattr(os, "add_dll_directory"):
+            pytest.skip("os.add_dll_directory not available on this platform")
+
+        # Ensure _MEIPASS is absent
+        had_meipass = hasattr(sys, "_MEIPASS")
+        if had_meipass:
+            old = sys._MEIPASS
+            del sys._MEIPASS
+
+        added_dirs = []
+        original = os.add_dll_directory
+
+        def spy(path):
+            added_dirs.append(path)
+            if os.path.isdir(path):
+                return original(path)
+            return mock.MagicMock()
+
+        try:
+            with mock.patch.object(os, "add_dll_directory", side_effect=spy):
+                try:
+                    from vex import _load_native
+                    _load_native()
+                except ImportError:
+                    pass
+
+            # Only the package directory should have been added
+            assert len(added_dirs) == 1
+        finally:
+            if had_meipass:
+                sys._MEIPASS = old
 
 
 class TestOutputFormatValidation:

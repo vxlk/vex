@@ -5,6 +5,7 @@ from __future__ import annotations
 import mmap
 import os
 import struct
+import sys
 from dataclasses import dataclass
 from typing import List, Optional, Union
 
@@ -551,6 +552,12 @@ def _load_native():
     _pkg_dir = os.path.dirname(os.path.abspath(__file__))
     if hasattr(os, "add_dll_directory"):
         os.add_dll_directory(_pkg_dir)
+
+        # When running inside a PyInstaller frozen bundle, DLLs are
+        # extracted to sys._MEIPASS.  Add it so Windows can find them.
+        _meipass = getattr(sys, "_MEIPASS", None)
+        if _meipass:
+            os.add_dll_directory(_meipass)
 
     try:
         from . import _vex_core
