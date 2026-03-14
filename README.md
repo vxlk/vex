@@ -69,12 +69,12 @@ video file → demux → decode → scale → encode → blob/atlas/disk
 ## Quick start
 
 ```bash
-# deps: FFmpeg shared build + TurboJPEG in deps/
-# see deps/README.md
+# Full setup — creates venv, builds C++ extension, installs vex + test deps:
+./dev.sh install
 
-mkdir build && cd build
-cmake .. -G "Visual Studio 17 2022" -A x64
-cmake --build . --config Release
+# Then activate the venv:
+source .venv/Scripts/activate   # Windows
+source .venv/bin/activate       # Linux/Mac
 ```
 
 ```python
@@ -89,6 +89,100 @@ results = vex.batch_decode(
     max_threads=8,
 )
 ```
+
+## Building Debug vs Release
+
+vex supports both Debug and Release builds. The build config controls optimization, link-time code generation, and debug symbol availability.
+
+| Config | Flags | Use case |
+|---|---|---|
+| **Release** | `/O2 /GL /LTCG` | Benchmarks, production, normal usage |
+| **Debug** | Default MSVC debug flags | Debugging, development, stepping through C++ |
+
+Build with `dev.sh`:
+
+```bash
+./dev.sh build            # Debug
+./dev.sh build-release    # Release
+```
+
+Or manually with CMake:
+
+```bash
+mkdir build && cd build
+cmake .. -G "Visual Studio 17 2022" -A x64
+cmake --build . --config Release    # or --config Debug
+```
+
+Both configs produce:
+
+- `build/<Config>/_vex_core.cp3XX-win_amd64.pyd` — the compiled extension
+- `build/<Config>/*.dll` — FFmpeg and TurboJPEG runtime DLLs
+
+The post-build step automatically copies the `.pyd` and all DLLs into `python/vex/`, so `import vex` works immediately. Whichever config you build last is what `python/vex/` will contain — if you switch between Debug and Release, rebuild to get the matching binaries.
+
+**Tip:** `./dev.sh test` and `./dev.sh install` always build Release. Use `./dev.sh build` explicitly when you need a Debug binary for stepping through native code.
+
+## Updating `deps/` binaries
+
+vex depends on pre-built FFmpeg and libjpeg-turbo binaries placed in `deps/`. These are not checked into git — you download them manually.
+
+### FFmpeg
+
+vex requires a **shared/dev** build of FFmpeg 6+ (headers + import libs + DLLs).
+
+1. Download a shared Windows build from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) — pick the **shared** variant (e.g. `ffmpeg-7.1-full_build-shared.7z`).
+2. Extract and copy the contents so `deps/ffmpeg/` has this layout:
+
+```
+deps/ffmpeg/
+├── bin/
+│   ├── avcodec-62.dll
+│   ├── avformat-62.dll
+│   ├── avutil-60.dll
+│   ├── swresample-6.dll
+│   ├── swscale-9.dll
+│   ├── ffmpeg.exe          # used by tools/generate_fixtures.py
+│   └── ffprobe.exe
+├── include/
+│   ├── libavcodec/
+│   ├── libavformat/
+│   ├── libavutil/
+│   └── libswscale/
+└── lib/
+    ├── avcodec.lib
+    ├── avformat.lib
+    ├── avutil.lib
+    ├── swresample.lib
+    └── swscale.lib
+```
+
+3. After updating, do a clean rebuild:
+
+```bash
+./dev.sh clean
+./dev.sh build-release    # or ./dev.sh build for Debug
+```
+
+**Version note:** DLL names include the soversion (e.g. `avcodec-62.dll`). CMake globs for `avcodec*.dll` so version bumps are handled automatically — no CMake changes needed.
+
+### libjpeg-turbo (TurboJPEG)
+
+1. Download the official Windows installer or zip from [libjpeg-turbo releases](https://github.com/libjpeg-turbo/libjpeg-turbo/releases) (e.g. `libjpeg-turbo-3.x.x-vc64.exe`).
+2. Extract/install and copy so `deps/turbojpeg/` has this layout:
+
+```
+deps/turbojpeg/
+├── bin/
+│   └── turbojpeg.dll
+├── include/
+│   └── turbojpeg.h         # (+ jconfig.h, jpeglib.h, etc.)
+└── lib/
+    ├── turbojpeg.lib        # import lib (dynamic linking)
+    └── turbojpeg-static.lib # static lib (CMake will use this if turbojpeg.lib is absent)
+```
+
+3. Clean and rebuild as above.
 
 ## Frame timestamps
 
