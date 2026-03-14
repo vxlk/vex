@@ -19,6 +19,32 @@ def fmt_bytes(n: int) -> str:
         return f"{n / (1024 * 1024):.1f} MB"
 
 
+class ProgressBar:
+    """Reusable \r-overwriting progress bar for async decode loops."""
+
+    def __init__(self, est_total: int, t0: float):
+        self.est_total = est_total
+        self.t0 = t0
+
+    def update(self, frames_done: int):
+        if self.est_total <= 0:
+            return
+        pct = min(frames_done / self.est_total, 1.0)
+        bar_w = 40
+        filled = int(bar_w * pct)
+        bar = "#" * filled + "-" * (bar_w - filled)
+        elapsed_ms = (time.perf_counter() - self.t0) * 1000
+        sys.stdout.write(
+            f"\r  {bar} {pct:>6.1%}  {frames_done}/{self.est_total}  "
+            f"{elapsed_ms:.0f}ms"
+        )
+        sys.stdout.flush()
+
+    def finish(self, frames_done: int):
+        self.update(frames_done)
+        sys.stdout.write("\n")
+
+
 def parse_args(argv: list[str]) -> dict:
     """Parse CLI arguments into a config dict."""
     if len(argv) < 2:
@@ -98,20 +124,7 @@ def decode_video(
     t_last_frame = None
     frame_skip = max(1, cfg["frame_skip"])
     est_total = (probe.frame_count + frame_skip - 1) // frame_skip
-
-    def update_progress():
-        nonlocal frames_decoded
-        if est_total > 0:
-            pct = min(frames_decoded / est_total, 1.0)
-            bar_w = 40
-            filled = int(bar_w * pct)
-            bar = "#" * filled + "-" * (bar_w - filled)
-            elapsed_ms = (time.perf_counter() - t0) * 1000
-            sys.stdout.write(
-                f"\r  {bar} {pct:>6.1%}  {frames_decoded}/{est_total}  "
-                f"{elapsed_ms:.0f}ms"
-            )
-            sys.stdout.flush()
+    progress = ProgressBar(est_total, t0)
 
     while True:
         events = handle.drain_events()
@@ -124,7 +137,7 @@ def decode_video(
             t_last_frame = now
 
         if events:
-            update_progress()
+            progress.update(frames_decoded)
 
         if not events:
             if handle.done:
@@ -135,8 +148,7 @@ def decode_video(
                     if t_first_frame is None:
                         t_first_frame = now
                     t_last_frame = now
-                update_progress()
-                sys.stdout.write("\n")
+                progress.finish(frames_decoded)
                 break
             time.sleep(0.001)
 

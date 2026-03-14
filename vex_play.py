@@ -7,7 +7,7 @@ import time
 
 import vex
 
-from vex_report import parse_args, print_report, probe_video
+from vex_report import ProgressBar, parse_args, print_report, probe_video
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -64,34 +64,51 @@ def main():
     frames_sent = 0
     t_first_frame = None
     t_last_frame = None
+    frame_skip = max(1, cfg["frame_skip"])
+    est_total = (probe.frame_count + frame_skip - 1) // frame_skip
+    progress = ProgressBar(est_total, t_decode_start)
+
+    pipe_alive = True
+
+    def write_frame(jpeg: bytes):
+        nonlocal pipe_alive
+        if not pipe_alive:
+            return
+        try:
+            proc.stdin.write(jpeg)
+            proc.stdin.flush()
+        except (BrokenPipeError, OSError):
+            pipe_alive = False
 
     try:
         while True:
             events = handle.drain_events()
             for evt in events:
                 jpeg = handle.peek_jpeg(evt)
-                proc.stdin.write(jpeg)
-                proc.stdin.flush()
+                write_frame(jpeg)
                 frames_sent += 1
                 now = time.perf_counter()
                 if t_first_frame is None:
                     t_first_frame = now
                 t_last_frame = now
 
+            if events:
+                progress.update(frames_sent)
+
             if not events:
                 if handle.done:
                     for evt in handle.drain_events():
-                        proc.stdin.write(handle.peek_jpeg(evt))
-                        proc.stdin.flush()
+                        write_frame(handle.peek_jpeg(evt))
                         frames_sent += 1
                         now = time.perf_counter()
                         if t_first_frame is None:
                             t_first_frame = now
                         t_last_frame = now
+                    progress.finish(frames_sent)
                     break
                 time.sleep(0.001)
 
-    except (KeyboardInterrupt, BrokenPipeError, OSError):
+    except KeyboardInterrupt:
         pass
     finally:
         try:
