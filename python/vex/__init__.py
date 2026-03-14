@@ -89,17 +89,22 @@ class LevelConfig:
 
 
 @dataclass
-class FrameTimes:
-    """Per-frame presentation timestamps from a packet-only scan.
+class ProbeResult:
+    """Video probe result: per-frame timestamps + codec/resolution metadata.
 
     Attributes:
-        times:        float64 numpy array, display-order, in seconds.
-        frame_count:  number of frames.
-        duration_sec: video duration in seconds.
-        fps:          frames per second.
-        strategy:     timestamp extraction strategy name.
-        container:    FFmpeg demuxer name.
-        codec:        codec name.
+        times:          float64 numpy array, display-order, in seconds.
+        frame_count:    number of frames.
+        duration_sec:   video duration in seconds.
+        fps:            frames per second.
+        strategy:       timestamp extraction strategy name.
+        container:      FFmpeg demuxer name.
+        codec:          codec name.
+        codec_id:       FFmpeg AVCodecID as int.
+        width:          source video width in pixels.
+        height:         source video height in pixels.
+        file_size:      file size in bytes.
+        decode_threads: FFmpeg auto-detected decode thread count (0 = codec manages own threads).
     """
 
     times: np.ndarray
@@ -109,12 +114,19 @@ class FrameTimes:
     strategy: str
     container: str
     codec: str
+    codec_id: int = 0
+    width: int = 0
+    height: int = 0
+    file_size: int = 0
+    decode_threads: int = 0
 
     def __repr__(self) -> str:
         return (
-            f"FrameTimes(frames={self.frame_count}, "
+            f"ProbeResult(frames={self.frame_count}, "
+            f"{self.width}x{self.height}, "
             f"duration={self.duration_sec:.3f}s, "
-            f"fps={self.fps:.2f}, strategy={self.strategy!r})"
+            f"fps={self.fps:.2f}, codec={self.codec!r}, "
+            f"strategy={self.strategy!r})"
         )
 
 
@@ -964,6 +976,7 @@ def batch_decode_async(
     use_hw_accel: bool = True,
     blob_reservation: int = 0,
     collect_frame_times: bool = False,
+    probe_info: Optional[List] = None,
 ) -> DecodeHandle:
     """Start an asynchronous batch decode operation.
 
@@ -977,6 +990,10 @@ def batch_decode_async(
                           in-memory JPEG stream output.  The reservation
                           is address space only — physical memory is
                           committed on demand as frames are written.
+        probe_info: Optional list of :class:`ProbeResult` (or dicts with
+                    ``codec_id``, ``width``, ``height``), one per path.
+                    When provided, the HW compatibility check skips
+                    opening a throwaway decoder — saving ~200-600ms.
 
     Returns:
         A :class:`DecodeHandle`.  Call ``handle.result()`` to block until
@@ -998,6 +1015,7 @@ def batch_decode_async(
         use_hw_accel,
         blob_reservation,
         collect_frame_times,
+        probe_info,
     )
 
     return DecodeHandle(native_handle)
@@ -1008,19 +1026,21 @@ def batch_decode_async(
 # ---------------------------------------------------------------------------
 
 
-def get_frame_times(path: str) -> FrameTimes:
-    """Get presentation timestamps for every frame (packet scan, no decode).
+def probe(path: str) -> ProbeResult:
+    """Probe a video file: timestamps, codec info, resolution, decode thread count.
 
-    Returns a :class:`FrameTimes` with a float64 numpy array of per-frame
-    timestamps in seconds (display order), plus metadata about the video.
+    Returns a :class:`ProbeResult` with per-frame timestamps (float64 numpy
+    array in seconds, display order) plus codec/resolution metadata and the
+    FFmpeg auto-detected decode thread count.
 
-    This is independent of :func:`batch_decode` — it opens the file,
-    reads packet-level timestamps from the container, and returns
-    immediately.  No frame decoding occurs.
+    This opens the file once, reads packet-level timestamps, discovers the
+    codec, and queries FFmpeg's thread heuristic.  Combined, this replaces
+    the old two-call pattern (separate frame-times + thread-probe) with a
+    single file open.
     """
     _vex_core = _load_native()
-    raw = _vex_core.get_frame_times(path)
-    return FrameTimes(
+    raw = _vex_core.probe(path)
+    return ProbeResult(
         times=raw["times"],
         frame_count=raw["frame_count"],
         duration_sec=raw["duration_sec"],
@@ -1028,59 +1048,12 @@ def get_frame_times(path: str) -> FrameTimes:
         strategy=TIMESTAMP_STRATEGIES.get(raw["strategy"], "unknown"),
         container=raw["container"],
         codec=raw["codec"],
+        codec_id=raw.get("codec_id", 0),
+        width=raw.get("width", 0),
+        height=raw.get("height", 0),
+        file_size=raw.get("file_size", 0),
+        decode_threads=raw.get("decode_threads", 0),
     )
-
-
-def probe_decode_threads(path: str, decode_threads: int = 0) -> int:
-    """Return how many threads FFmpeg will use to decode a video file.
-
-    Opens the file, initialises the codec, and queries the actual thread
-    count chosen by FFmpeg.  A return value of ``1`` means the codec does
-    not support multi-threaded decoding.
-
-    Args:
-        path:           Path to a video file.
-        decode_threads: Thread count hint.  ``0`` (default) lets FFmpeg
-                        auto-detect based on CPU cores and codec
-                        capabilities.  A positive value requests at most
-                        that many threads (FFmpeg may use fewer if the
-                        codec doesn't support it).
-
-    Returns:
-        The actual decoder thread count (``>= 1``), or ``0`` if the file
-        could not be opened / decoded.
-    """
-    _vex_core = _load_native()
-    return _vex_core.probe_decode_threads(path, decode_threads)
-
-
-def probe_batch_threads(
-    paths: Union[str, List[str]],
-    *,
-    max_threads: int = 0,
-) -> int:
-    """Return the number of threads a batch decode job will use.
-
-    Accepts a directory path or a list of file paths. Sums per-file
-    decoder thread counts capped to *max_threads*.
-    """
-    if isinstance(paths, str):
-        p = os.path.abspath(paths)
-        if os.path.isdir(p):
-            file_list = [
-                os.path.join(p, f)
-                for f in sorted(os.listdir(p))
-                if os.path.isfile(os.path.join(p, f))
-            ]
-        else:
-            file_list = [p]
-    else:
-        file_list = list(paths)
-
-    total = sum(probe_decode_threads(fp) for fp in file_list)
-    if max_threads > 0:
-        return min(total, max_threads)
-    return total
 
 
 # ---------------------------------------------------------------------------
@@ -1091,7 +1064,7 @@ __all__ = [
     "NATIVE",
     "TIMESTAMP_STRATEGIES",
     "LevelConfig",
-    "FrameTimes",
+    "ProbeResult",
     "BatchResult",
     "JpegStreamResult",
     "SpriteAtlasResult",
@@ -1101,9 +1074,7 @@ __all__ = [
     "DecodeHandle",
     "batch_decode",
     "batch_decode_async",
-    "get_frame_times",
-    "probe_decode_threads",
-    "probe_batch_threads",
+    "probe",
 ]
 
 __version__ = "0.1.0"

@@ -4,8 +4,8 @@
 
 #include "orchestrator.h"
 #include "async_handle.h"
-#include "decoder.h"
-#include "frame_timer.h"
+#include "probe.h"
+#include "thread_pool.h"
 
 namespace py = pybind11;
 
@@ -416,28 +416,13 @@ PYBIND11_MODULE(_vex_core, m) {
             return convert_results(pair.first, pair.second);
         });
 
-    // ── probe_decode_threads ──────────────────────────────────────────────
-    m.def(
-        "probe_decode_threads",
-        [](const std::string& path, int decode_threads) -> int {
-            py::gil_scoped_release release;
-            vex::FileDecoder dec(path, nullptr, decode_threads);
-            if (!dec.is_valid() || !dec.is_video_format())
-                return 0;
-            return dec.decode_thread_count();
-        },
-        py::arg("path"), py::arg("decode_threads") = 0,
-        "Probe how many threads FFmpeg will use to decode a video file.\n"
-        "decode_threads: 0 = auto (FFmpeg decides), >0 = request that many.\n"
-        "Returns the actual thread count chosen by FFmpeg (1 = single-threaded codec).");
-
     // ── batch_decode_async ──────────────────────────────────────────────────
     m.def(
         "batch_decode_async",
         [](const std::vector<std::string>& paths, const std::vector<vex::LevelConfig>& levels,
            int max_threads, bool keyframes_only, int frame_skip, bool use_hw_accel,
-           size_t blob_reservation,
-           bool collect_frame_times) -> std::shared_ptr<vex::DecodeHandle> {
+           size_t blob_reservation, bool collect_frame_times,
+           py::object probe_info_obj) -> std::shared_ptr<vex::DecodeHandle> {
             vex::BatchConfig cfg{};
             cfg.paths = paths;
             cfg.levels = levels;
@@ -448,37 +433,77 @@ PYBIND11_MODULE(_vex_core, m) {
             cfg.blob_reservation = blob_reservation;
             cfg.collect_frame_times = collect_frame_times;
 
+            // Parse optional probe_info list
+            if (!probe_info_obj.is_none()) {
+                py::list pi_list = probe_info_obj.cast<py::list>();
+                cfg.probe_info.resize(pi_list.size());
+                for (size_t i = 0; i < pi_list.size(); ++i) {
+                    py::object item = pi_list[i];
+                    if (item.is_none())
+                        continue;
+                    // Accept dict or object with codec_id/width/height attrs
+                    if (py::isinstance<py::dict>(item)) {
+                        py::dict d = item.cast<py::dict>();
+                        if (d.contains("codec_id"))
+                            cfg.probe_info[i].codec_id = d["codec_id"].cast<int>();
+                        if (d.contains("width"))
+                            cfg.probe_info[i].width = d["width"].cast<int>();
+                        if (d.contains("height"))
+                            cfg.probe_info[i].height = d["height"].cast<int>();
+                    } else {
+                        if (py::hasattr(item, "codec_id"))
+                            cfg.probe_info[i].codec_id = item.attr("codec_id").cast<int>();
+                        if (py::hasattr(item, "width"))
+                            cfg.probe_info[i].width = item.attr("width").cast<int>();
+                        if (py::hasattr(item, "height"))
+                            cfg.probe_info[i].height = item.attr("height").cast<int>();
+                    }
+                }
+            }
+
             py::gil_scoped_release release;
             return vex::Orchestrator::batch_decode_async(cfg);
         },
         py::arg("paths"), py::arg("levels"), py::arg("max_threads") = 0,
         py::arg("keyframes_only") = true, py::arg("frame_skip") = 1, py::arg("use_hw_accel") = true,
         py::arg("blob_reservation") = 0, py::arg("collect_frame_times") = false,
+        py::arg("probe_info") = py::none(),
         "Decode video keyframes asynchronously. Returns DecodeHandle.");
 
-    // ── get_frame_times (standalone, packet-only scan) ──────────────────────
-    m.def(
-        "get_frame_times",
-        [](const std::string& path) -> py::dict {
-            vex::FrameTimesResult result;
-            {
-                py::gil_scoped_release release;
-                result = vex::get_frame_times(path);
-            }
-            py::dict d;
-            // Heap + capsule: Python frees when the numpy array is collected.
-            auto* heap = new std::vector<double>(std::move(result.times_sec));
-            auto cap =
-                py::capsule(heap, [](void* p) { delete static_cast<std::vector<double>*>(p); });
-            d["times"] = py::array_t<double>({static_cast<py::ssize_t>(heap->size())},
-                                             {sizeof(double)}, heap->data(), cap);
-            d["frame_count"] = result.frame_count;
-            d["duration_sec"] = result.duration_sec;
-            d["fps"] = result.fps;
-            d["strategy"] = static_cast<int>(result.strategy);
-            d["container"] = result.container;
-            d["codec"] = result.codec;
-            return d;
-        },
-        py::arg("path"), "Get per-frame presentation timestamps via packet scan (no decode).");
+    // ── probe (standalone probe: timestamps + codec info + thread count) ────
+    auto probe_impl = [](const std::string& path) -> py::dict {
+        vex::ProbeResult result;
+        {
+            py::gil_scoped_release release;
+            result = vex::probe_video(path);
+        }
+        py::dict d;
+        // Heap + capsule: Python frees when the numpy array is collected.
+        auto* heap = new std::vector<double>(std::move(result.times_sec));
+        auto cap =
+            py::capsule(heap, [](void* p) { delete static_cast<std::vector<double>*>(p); });
+        d["times"] = py::array_t<double>({static_cast<py::ssize_t>(heap->size())},
+                                         {sizeof(double)}, heap->data(), cap);
+        d["frame_count"] = result.frame_count;
+        d["duration_sec"] = result.duration_sec;
+        d["fps"] = result.fps;
+        d["strategy"] = static_cast<int>(result.strategy);
+        d["container"] = result.container;
+        d["codec"] = result.codec;
+        d["codec_id"] = result.codec_id;
+        d["width"] = result.width;
+        d["height"] = result.height;
+        d["file_size"] = result.file_size;
+        d["decode_threads"] = result.decode_threads;
+        return d;
+    };
+
+    m.def("probe", probe_impl, py::arg("path"),
+          "Probe a video file: timestamps, codec info, resolution, decode thread count.");
+
+    // Shutdown persistent thread pool on module unload.
+    auto cleanup = py::capsule(&vex::ThreadPool::instance(), [](void*) {
+        vex::ThreadPool::instance().shutdown();
+    });
+    m.add_object("_thread_pool_cleanup", cleanup);
 }

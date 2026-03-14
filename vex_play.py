@@ -48,17 +48,19 @@ def main():
         elif arg == "--frame-skip" and i + 1 < len(args):
             frame_skip = int(args[i + 1])
 
-    # --- probe video --------------------------------------------------------
-    ft = vex.get_frame_times(path)
-    num_threads = vex.probe_decode_threads(path)
+    # --- probe video (single file open) --------------------------------------
+    probe = vex.probe(path)
+    num_threads = probe.decode_threads
     print(
-        f"{ft.frame_count} frames, {ft.duration_sec:.2f}s, "
-        f"{ft.fps:.2f} fps, codec={ft.codec}, strategy={ft.strategy}"
-        f"{num_threads} threads to be used in decode."
+        f"{probe.frame_count} frames, {probe.width}x{probe.height}, "
+        f"{probe.duration_sec:.2f}s, {probe.fps:.2f} fps, "
+        f"codec={probe.codec}, strategy={probe.strategy}, "
+        f"{'MAX' if num_threads == 0 else num_threads} threads to be used in decode."
     )
 
     # --- start async decode -------------------------------------------------
     level = vex.LevelConfig(width=width, height=height, quality=quality)
+    t_decode_start = time.perf_counter()
     handle = vex.batch_decode_async(
         [path],
         [level],
@@ -66,13 +68,14 @@ def main():
         frame_skip=frame_skip,
         collect_frame_times=True,
         max_threads=num_threads,
+        probe_info=[probe],
     )
 
     # --- launch ffplay ------------------------------------------------------
     if keyframes_only:
         fps_hint = 5
     else:
-        fps_hint = ft.fps / frame_skip
+        fps_hint = probe.fps / frame_skip
 
     ffplay = find_ffplay()
     proc = subprocess.Popen(
@@ -90,7 +93,8 @@ def main():
 
     # --- stream frames to ffplay --------------------------------------------
     frames_sent = 0
-    t0 = time.perf_counter()
+    t_first_frame = None
+    t_last_frame = None
 
     try:
         while True:
@@ -100,6 +104,9 @@ def main():
                 proc.stdin.write(jpeg)
                 proc.stdin.flush()
                 frames_sent += 1
+                if t_first_frame is None:
+                    t_first_frame = time.perf_counter()
+                t_last_frame = time.perf_counter()
 
             if not events:
                 if handle.done:
@@ -108,6 +115,9 @@ def main():
                         proc.stdin.write(handle.peek_jpeg(evt))
                         proc.stdin.flush()
                         frames_sent += 1
+                        if t_first_frame is None:
+                            t_first_frame = time.perf_counter()
+                        t_last_frame = time.perf_counter()
                     break
                 time.sleep(0.001)
 
@@ -121,9 +131,17 @@ def main():
         proc.wait()
 
     # --- report -------------------------------------------------------------
-    elapsed = time.perf_counter() - t0
+    t_total = time.perf_counter() - t_decode_start
     result = handle.result()
-    print(f"\n{frames_sent} frames piped in {elapsed:.2f}s")
+
+    first_ms = (t_first_frame - t_decode_start) * 1000 if t_first_frame else float("nan")
+    last_ms = (t_last_frame - t_decode_start) * 1000 if t_last_frame else float("nan")
+
+    print(f"\n--- vex timing ---")
+    print(f"  first frame ready : {first_ms:>8.1f} ms")
+    print(f"  last frame ready  : {last_ms:>8.1f} ms")
+    print(f"  total (decode)    : {t_total*1000:>8.1f} ms")
+    print(f"  frames decoded    : {frames_sent}")
     print(result.metrics.log_summary())
 
 

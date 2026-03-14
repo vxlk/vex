@@ -1,4 +1,4 @@
-"""Standalone frame timestamps — get every frame's PTS without decoding."""
+"""Standalone video probe — get every frame's PTS without decoding."""
 
 import os
 import sys
@@ -27,7 +27,7 @@ for filename, label in samples:
     if not os.path.isfile(path):
         continue
 
-    ft = vex.get_frame_times(path)
+    ft = vex.probe(path)
 
     print(f"\n{label}  ({filename})")
     print(f"  strategy:  {ft.strategy}")
@@ -50,7 +50,7 @@ for filename, label in samples:
 print("\n--- Cross-validation: packet scan vs full decode ---")
 
 path = os.path.join(FIXTURES, "h264_mp4.mp4")
-ft = vex.get_frame_times(path)
+ft = vex.probe(path)
 result = vex.batch_decode([path], keyframes_only=False)
 
 print(f"  Packet scan frame count: {ft.frame_count}")

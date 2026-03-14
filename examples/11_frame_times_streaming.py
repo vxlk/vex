@@ -31,7 +31,7 @@ print(f"  first: {times[0]:.4f}s")
 print(f"  last:  {times[-1]:.4f}s")
 
 # Compare against standalone packet scan
-standalone = vex.get_frame_times(VIDEO)
+standalone = vex.probe(VIDEO)
 diff = np.abs(times[: len(standalone.times)] - standalone.times[: len(times)])
 print(f"\nStandalone vs streaming max delta: {diff.max():.6f}s")
 

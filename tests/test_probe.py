@@ -1,4 +1,4 @@
-"""Tests for vex.get_frame_times and streaming frame time collection."""
+"""Tests for vex.probe and streaming frame time collection."""
 
 import os
 import sys
@@ -98,14 +98,14 @@ EDGE_CASES = {
 @pytest.mark.parametrize(
     "rel,expected_strategy", AVAILABLE_FIXTURES, ids=[r for r, _ in AVAILABLE_FIXTURES]
 )
-class TestStandaloneFrameTimes:
+class TestStandaloneProbe:
     def test_frame_count_matches(self, rel, expected_strategy):
-        ft = vex.get_frame_times(_fixture_path(rel))
+        ft = vex.probe(_fixture_path(rel))
         assert len(ft.times) == ft.frame_count
         assert ft.frame_count > 0
 
     def test_monotonically_nondecreasing(self, rel, expected_strategy):
-        ft = vex.get_frame_times(_fixture_path(rel))
+        ft = vex.probe(_fixture_path(rel))
         if ft.frame_count > 1:
             diffs = np.diff(ft.times)
             assert np.all(diffs >= -1e-9), (
@@ -113,13 +113,13 @@ class TestStandaloneFrameTimes:
             )
 
     def test_strategy_matches_container(self, rel, expected_strategy):
-        ft = vex.get_frame_times(_fixture_path(rel))
+        ft = vex.probe(_fixture_path(rel))
         assert ft.strategy == expected_strategy, (
             f"Expected {expected_strategy} for {rel}, got {ft.strategy}"
         )
 
     def test_reasonable_bounds(self, rel, expected_strategy):
-        ft = vex.get_frame_times(_fixture_path(rel))
+        ft = vex.probe(_fixture_path(rel))
         assert ft.times[0] >= 0, f"First time negative: {ft.times[0]}"
         assert ft.times[0] < 1.0, f"First time too large: {ft.times[0]}"
         if ft.duration_sec > 0:
@@ -128,7 +128,7 @@ class TestStandaloneFrameTimes:
             )
 
     def test_frame_count_matches_decode(self, rel, expected_strategy):
-        ft = vex.get_frame_times(_fixture_path(rel))
+        ft = vex.probe(_fixture_path(rel))
         result = vex.batch_decode([_fixture_path(rel)], keyframes_only=False)
         meta = result.metrics
         decoded_count = meta.keyframes_decoded
@@ -149,7 +149,7 @@ class TestEdgeCases:
         reason="single_frame.mp4 not found",
     )
     def test_single_frame(self):
-        ft = vex.get_frame_times(_fixture_path(EDGE_CASES["single_frame"]))
+        ft = vex.probe(_fixture_path(EDGE_CASES["single_frame"]))
         assert ft.frame_count == 1
         assert abs(ft.times[0]) < 0.1  # should be ~0.0
 
@@ -158,14 +158,14 @@ class TestEdgeCases:
         reason="all_keyframes.mp4 not found",
     )
     def test_all_keyframes(self):
-        ft = vex.get_frame_times(_fixture_path(EDGE_CASES["all_keyframes"]))
+        ft = vex.probe(_fixture_path(EDGE_CASES["all_keyframes"]))
         assert ft.frame_count == 60  # 2s * 30fps
 
     @pytest.mark.skipif(
         not _fixture_exists(EDGE_CASES["long_gop"]), reason="long_gop.mp4 not found"
     )
     def test_long_gop(self):
-        ft = vex.get_frame_times(_fixture_path(EDGE_CASES["long_gop"]))
+        ft = vex.probe(_fixture_path(EDGE_CASES["long_gop"]))
         assert ft.frame_count == 150  # 5s * 30fps
 
     @pytest.mark.skipif(
@@ -173,14 +173,14 @@ class TestEdgeCases:
     )
     def test_truncated(self):
         # Should return times for existing frames without crashing
-        ft = vex.get_frame_times(_fixture_path(EDGE_CASES["truncated"]))
+        ft = vex.probe(_fixture_path(EDGE_CASES["truncated"]))
         assert ft.frame_count >= 0
 
     @pytest.mark.skipif(
         not _fixture_exists(EDGE_CASES["empty_file"]), reason="empty_file.mp4 not found"
     )
     def test_empty_file(self):
-        ft = vex.get_frame_times(_fixture_path(EDGE_CASES["empty_file"]))
+        ft = vex.probe(_fixture_path(EDGE_CASES["empty_file"]))
         assert ft.frame_count == 0
 
     @pytest.mark.skipif(
@@ -188,7 +188,7 @@ class TestEdgeCases:
         reason="no_video_stream.mp4 not found",
     )
     def test_no_video_stream(self):
-        ft = vex.get_frame_times(_fixture_path(EDGE_CASES["no_video_stream"]))
+        ft = vex.probe(_fixture_path(EDGE_CASES["no_video_stream"]))
         assert ft.frame_count == 0
 
 
@@ -205,13 +205,13 @@ if _STREAMING_FIXTURE is None and AVAILABLE_FIXTURES:
 
 
 @pytest.mark.skipif(_STREAMING_FIXTURE is None, reason="No fixtures available")
-class TestStreamingFrameTimes:
+class TestStreamingProbe:
     @property
     def path(self):
         return _fixture_path(_STREAMING_FIXTURE)
 
     def test_streaming_frame_times_match_standalone(self):
-        standalone = vex.get_frame_times(self.path)
+        standalone = vex.probe(self.path)
         result = vex.batch_decode(
             [self.path],
             keyframes_only=False,
@@ -284,7 +284,7 @@ class TestStreamingFrameTimes:
 def test_streaming_matches_standalone(rel, expected_strategy):
     """Cross-validate streaming vs standalone for a few fixtures."""
     path = _fixture_path(rel)
-    standalone = vex.get_frame_times(path)
+    standalone = vex.probe(path)
     result = vex.batch_decode([path], keyframes_only=False, collect_frame_times=True)
     streaming = result.metrics.frame_times(0)
     assert streaming is not None

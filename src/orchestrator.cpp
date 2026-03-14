@@ -8,6 +8,7 @@
 #include "hw_accel.h"
 #include "keyframe_index_scanner.h"
 #include "virtual_blob.h"
+#include "thread_pool.h"
 
 #include <thread>
 #include <mutex>
@@ -16,6 +17,7 @@
 #include <algorithm>
 #include <chrono>
 #include <memory>
+#include <unordered_map>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -24,6 +26,11 @@ extern "C" {
 }
 
 namespace vex {
+
+// ── HW compat cache (process-global, survives across batch calls) ───────────
+
+static std::mutex g_hw_cache_mutex;
+static std::unordered_map<int, bool> g_hw_compat_cache;
 
 // ── Shared work queue ───────────────────────────────────────────────────────
 
@@ -156,21 +163,49 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
         const std::string& path = ctx->config.paths[static_cast<size_t>(file_idx)];
 
         // Stage 3: Determine HW compatibility before opening the codec.
-        // We open the file once with SW to discover the codec ID and source
-        // resolution, then decide whether to use HW.  For incompatible codecs
-        // this avoids a wasted HW open+fail+retry cycle.  We also skip HW
-        // for small sources (< 720p) where the GPU→CPU transfer overhead
-        // exceeds the decode savings — measured on Intel UHD 620 iGPU.
+        // Uses a per-batch cache keyed by codec_id so that large workloads
+        // with many files of the same codec only probe HW compat once.
         static constexpr int HW_MIN_PIXELS = 1280 * 720;
 
         bool skip_file = false;
         bool hw_compatible = false;
         if (hw_ptr) {
-            FileDecoder probe(path, nullptr);
-            if (probe.is_valid()) {
-                int src_pixels = probe.source_width() * probe.source_height();
-                hw_compatible = can_hw_decode(hw_ptr->device_type, probe.codec_id()) &&
-                                (src_pixels >= HW_MIN_PIXELS);
+            int probe_codec_id = 0;
+            int probe_w = 0, probe_h = 0;
+
+            // Get codec_id + resolution from probe_info or file probe
+            auto fi = static_cast<size_t>(file_idx);
+            if (fi < ctx->config.probe_info.size() &&
+                ctx->config.probe_info[fi].codec_id != 0) {
+                const auto& pi = ctx->config.probe_info[fi];
+                probe_codec_id = pi.codec_id;
+                probe_w = pi.width;
+                probe_h = pi.height;
+            } else {
+                FileDecoder file_probe(path, nullptr);
+                if (file_probe.is_valid()) {
+                    probe_codec_id = static_cast<int>(file_probe.codec_id());
+                    probe_w = file_probe.source_width();
+                    probe_h = file_probe.source_height();
+                }
+            }
+
+            if (probe_codec_id != 0) {
+                // Check process-global cache first
+                bool codec_ok;
+                {
+                    std::lock_guard<std::mutex> lock(g_hw_cache_mutex);
+                    auto it = g_hw_compat_cache.find(probe_codec_id);
+                    if (it != g_hw_compat_cache.end()) {
+                        codec_ok = it->second;
+                    } else {
+                        codec_ok = can_hw_decode(hw_ptr->device_type,
+                                                  static_cast<AVCodecID>(probe_codec_id));
+                        g_hw_compat_cache[probe_codec_id] = codec_ok;
+                    }
+                }
+                int src_pixels = probe_w * probe_h;
+                hw_compatible = codec_ok && (src_pixels >= HW_MIN_PIXELS);
             }
         }
 
@@ -384,12 +419,14 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
                     break;  // falls through to retry check
                 }
 
-                // Pre-commit pages for estimated JPEG output
+                // Pre-commit pages for estimated JPEG output (capped at 256MB)
                 for (int l = 0; l < ctx->num_levels; ++l) {
                     const auto& lc = resolved[static_cast<size_t>(l)];
                     if (lc.output == OutputFormat::JPEG_STREAM && lc.in_memory) {
+                        static constexpr size_t MAX_PRECOMMIT = 256ULL * 1024 * 1024;
                         size_t max_per_frame = JpegEncoder::max_jpeg_size(lc.width, lc.height);
                         size_t total_cap = max_per_frame * kf_count;
+                        total_cap = std::min(total_cap, MAX_PRECOMMIT);
                         auto& accum = ctx->mem_accums[static_cast<size_t>(l)];
                         auto& pre_blob = accum->blobs[static_cast<size_t>(file_idx)];
                         uint8_t* old_ptr = pre_blob.data;
@@ -452,13 +489,15 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
                 int frame_skip = std::max(1, ctx->config.frame_skip);
                 int est_output = (est_frames + frame_skip - 1) / frame_skip;
 
-                // Pre-commit pages for estimated JPEG output
+                // Pre-commit pages for estimated JPEG output (capped at 256MB)
                 for (int l = 0; l < ctx->num_levels; ++l) {
                     const auto& lc = resolved[static_cast<size_t>(l)];
                     if (lc.output == OutputFormat::JPEG_STREAM && lc.in_memory) {
+                        static constexpr size_t MAX_PRECOMMIT = 256ULL * 1024 * 1024;
                         size_t max_per_frame = JpegEncoder::max_jpeg_size(lc.width, lc.height);
                         size_t total_cap =
                             max_per_frame * static_cast<size_t>(est_output * 3 / 2 + 1);
+                        total_cap = std::min(total_cap, MAX_PRECOMMIT);
                         auto& accum = ctx->mem_accums[static_cast<size_t>(l)];
                         auto& pre_blob = accum->blobs[static_cast<size_t>(file_idx)];
                         uint8_t* old_ptr = pre_blob.data;
@@ -1015,16 +1054,26 @@ std::shared_ptr<DecodeHandle> Orchestrator::batch_decode_async(const BatchConfig
         ctx->all_metrics[static_cast<size_t>(t)] = std::make_shared<ThreadMetrics>();
     }
 
-    // Launch worker threads
-    std::vector<std::thread> workers;
-    for (int t = 0; t < num_threads; ++t) {
-        workers.emplace_back(worker_func, ctx, t);
-    }
+    // Launch workers via persistent thread pool + lightweight manager.
+    // Signal shutdown on the work queue first — this doesn't stop workers
+    // immediately, it just ensures they exit dequeue() with -1 once the
+    // queue is drained instead of blocking forever.
+    ctx->work_queue->signal_shutdown();
 
-    // Detach a manager thread that waits for workers, then finalizes
     auto handle = ctx->handle;
-    std::thread manager_thread(manager_func, ctx, std::move(workers));
-    manager_thread.detach();
+    int nt = num_threads;
+
+    std::thread manager([ctx, nt]() {
+        // Run worker_func(ctx, thread_id) for each thread_id via the pool.
+        // ThreadPool::run() blocks until all workers finish.
+        ThreadPool::instance().run(
+            [ctx](int thread_id) { worker_func(ctx, thread_id); }, nt);
+
+        // Finalize (reuse manager_func with empty worker vector —
+        // the redundant signal_shutdown() inside is harmless)
+        manager_func(ctx, {});
+    });
+    manager.detach();
 
     return handle;
 }

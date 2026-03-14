@@ -1,4 +1,4 @@
-#include "frame_timer.h"
+#include "probe.h"
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -36,10 +36,10 @@ static TimestampStrategy classify_container(const std::string& name) {
     return TimestampStrategy::GENERIC_PTS;
 }
 
-// ── get_frame_times ─────────────────────────────────────────────────────────
+// ── probe_video ─────────────────────────────────────────────────────────────
 
-FrameTimesResult get_frame_times(const std::string& path) {
-    FrameTimesResult result;
+ProbeResult probe_video(const std::string& path) {
+    ProbeResult result;
 
     AVFormatContext* fmt_ctx = nullptr;
     if (avformat_open_input(&fmt_ctx, path.c_str(), nullptr, nullptr) < 0)
@@ -256,6 +256,27 @@ FrameTimesResult get_frame_times(const std::string& path) {
     }
 
     av_packet_free(&pkt);
+
+    // ── Extract codec/resolution/file_size from already-open context ────
+    result.codec_id = static_cast<int>(stream->codecpar->codec_id);
+    result.width = stream->codecpar->width;
+    result.height = stream->codecpar->height;
+    result.file_size = avio_size(fmt_ctx->pb);
+
+    // ── Discover FFmpeg auto-detected thread count ──────────────────────
+    const AVCodec* codec = avcodec_find_decoder(stream->codecpar->codec_id);
+    if (codec) {
+        AVCodecContext* tmp = avcodec_alloc_context3(codec);
+        if (tmp) {
+            avcodec_parameters_to_context(tmp, stream->codecpar);
+            tmp->thread_count = 0;  // auto-detect
+            if (avcodec_open2(tmp, codec, nullptr) == 0) {
+                result.decode_threads = tmp->active_thread_type ? tmp->thread_count : 0;
+            }
+            avcodec_free_context(&tmp);
+        }
+    }
+
     avformat_close_input(&fmt_ctx);
 
     return result;

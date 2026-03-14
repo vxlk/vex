@@ -61,7 +61,7 @@ video file → demux → decode → scale → encode → blob/atlas/disk
 | `encoder` | JPEG compression via TurboJPEG |
 | `atlas` | Sprite sheet compositing |
 | `disk_writer` | Binary cache with offset table + mmap support |
-| `frame_timer` | Per-frame PTS extraction (packet scan, no decode) |
+| `probe` | Video probing: PTS extraction, codec/resolution info, thread count |
 | `async_handle` | Per-frame event dispatch |
 | `orchestrator` | Thread pool coordination, owns the full pipeline |
 | `bindings` | pybind11 → Python `_vex_core` module |
@@ -95,7 +95,7 @@ results = vex.batch_decode(
 Get the presentation timestamp of every frame without decoding pixel data:
 
 ```python
-ft = vex.get_frame_times("video.mp4")
+ft = vex.probe("video.mp4")
 
 print(ft.strategy)      # "sample_table", "block_timestamp", "pes_timestamp", etc.
 print(ft.frame_count)   # number of frames

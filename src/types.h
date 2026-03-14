@@ -49,6 +49,12 @@ struct LevelConfig {
     int atlas_columns = 10;  // only for sprite_atlas
 };
 
+struct FileProbeInfo {
+    int codec_id = 0;   // 0 = unknown, fallback to file probe
+    int width = 0;
+    int height = 0;
+};
+
 struct BatchConfig {
     std::vector<std::string> paths;
     std::vector<LevelConfig> levels;
@@ -60,6 +66,7 @@ struct BatchConfig {
                                        // 0 = default (256 MB).  Only affects
                                        // async in-memory JPEG_STREAM output.
     bool collect_frame_times = false;  // collect per-frame PTS during decode
+    std::vector<FileProbeInfo> probe_info;  // optional, one per path — skips HW compat probe
 };
 
 // ── Keyframe index ─────────────────────────────────────────────────────────
@@ -164,7 +171,7 @@ struct DecodeMetrics {
 
 // ── Result types ───────────────────────────────────────────────────────────
 
-struct FrameTimesResult {
+struct ProbeResult {
     std::vector<double> times_sec;  // display-order, one per frame
     int frame_count = 0;
     double duration_sec = 0.0;
@@ -172,6 +179,11 @@ struct FrameTimesResult {
     TimestampStrategy strategy = TimestampStrategy::LINEAR_FALLBACK;
     std::string container;
     std::string codec;
+    int codec_id = 0;        // AVCodecID cast to int
+    int width = 0;
+    int height = 0;
+    int64_t file_size = 0;
+    int decode_threads = 0;  // FFmpeg auto-detected thread count (0 = codec manages own threads)
 };
 
 struct JpegStreamResult {
