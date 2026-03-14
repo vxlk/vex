@@ -17,22 +17,22 @@ setup(
     packages=find_packages(where="python"),
     python_requires=">=3.9",
     install_requires=[
-        "numpy",
+        "numpy==2.4.2",
     ],
     extras_require={
         "examples": [
-            "numpy",
-            "Pillow",
+            "numpy==2.4.2",
+            "Pillow==12.1.1",
         ],
         "test": [
-            "pytest",
-            "Pillow",
+            "pytest==9.0.2",
+            "Pillow==12.1.1",
         ],
         "bench": [
-            "matplotlib",
+            "matplotlib==3.10.8",
         ],
         "dev": [
-            "ruff",
+            "ruff==0.15.5",
         ],
     },
     package_data={
