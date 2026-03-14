@@ -32,16 +32,6 @@ enum class TimestampStrategy : int {
     LINEAR_FALLBACK = 6,
 };
 
-struct FrameTimesResult {
-    std::vector<double> times_sec;  // display-order, one per frame
-    int frame_count = 0;
-    double duration_sec = 0.0;
-    double fps = 0.0;
-    TimestampStrategy strategy = TimestampStrategy::LINEAR_FALLBACK;
-    std::string container;
-    std::string codec;
-};
-
 enum class OutputFormat {
     JPEG_STREAM,
     SPRITE_ATLAS,
@@ -173,6 +163,16 @@ struct DecodeMetrics {
 };
 
 // ── Result types ───────────────────────────────────────────────────────────
+
+struct FrameTimesResult {
+    std::vector<double> times_sec;  // display-order, one per frame
+    int frame_count = 0;
+    double duration_sec = 0.0;
+    double fps = 0.0;
+    TimestampStrategy strategy = TimestampStrategy::LINEAR_FALLBACK;
+    std::string container;
+    std::string codec;
+};
 
 struct JpegStreamResult {
     std::vector<VirtualBlob> blobs;                // one per source file
