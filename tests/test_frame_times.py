@@ -79,9 +79,7 @@ def _fixture_exists(rel):
 
 
 # Build list of available fixtures
-AVAILABLE_FIXTURES = [
-    (rel, strat) for rel, strat in FIXTURES if _fixture_exists(rel)
-]
+AVAILABLE_FIXTURES = [(rel, strat) for rel, strat in FIXTURES if _fixture_exists(rel)]
 
 # Also check for edge-case fixtures
 EDGE_CASES = {
@@ -96,10 +94,11 @@ EDGE_CASES = {
 
 # ── Standalone tests (parametrized across all available fixtures) ─────────────
 
-@pytest.mark.parametrize("rel,expected_strategy", AVAILABLE_FIXTURES,
-                         ids=[r for r, _ in AVAILABLE_FIXTURES])
-class TestStandaloneFrameTimes:
 
+@pytest.mark.parametrize(
+    "rel,expected_strategy", AVAILABLE_FIXTURES, ids=[r for r, _ in AVAILABLE_FIXTURES]
+)
+class TestStandaloneFrameTimes:
     def test_frame_count_matches(self, rel, expected_strategy):
         ft = vex.get_frame_times(_fixture_path(rel))
         assert len(ft.times) == ft.frame_count
@@ -130,27 +129,24 @@ class TestStandaloneFrameTimes:
 
     def test_frame_count_matches_decode(self, rel, expected_strategy):
         ft = vex.get_frame_times(_fixture_path(rel))
-        result = vex.batch_decode(
-            [_fixture_path(rel)], keyframes_only=False
-        )
+        result = vex.batch_decode([_fixture_path(rel)], keyframes_only=False)
         meta = result.metrics
         decoded_count = meta.keyframes_decoded
         # Frame count from packet scan should match decoded frame count.
         # Allow small tolerance for containers where the last few packets
         # may not produce a decoded frame (e.g. truncated B-frames).
         assert abs(ft.frame_count - decoded_count) <= 2, (
-            f"Packet count {ft.frame_count} vs decoded {decoded_count} "
-            f"for {rel}"
+            f"Packet count {ft.frame_count} vs decoded {decoded_count} for {rel}"
         )
 
 
 # ── Edge case tests ──────────────────────────────────────────────────────────
 
-class TestEdgeCases:
 
+class TestEdgeCases:
     @pytest.mark.skipif(
         not _fixture_exists(EDGE_CASES["single_frame"]),
-        reason="single_frame.mp4 not found"
+        reason="single_frame.mp4 not found",
     )
     def test_single_frame(self):
         ft = vex.get_frame_times(_fixture_path(EDGE_CASES["single_frame"]))
@@ -159,23 +155,21 @@ class TestEdgeCases:
 
     @pytest.mark.skipif(
         not _fixture_exists(EDGE_CASES["all_keyframes"]),
-        reason="all_keyframes.mp4 not found"
+        reason="all_keyframes.mp4 not found",
     )
     def test_all_keyframes(self):
         ft = vex.get_frame_times(_fixture_path(EDGE_CASES["all_keyframes"]))
         assert ft.frame_count == 60  # 2s * 30fps
 
     @pytest.mark.skipif(
-        not _fixture_exists(EDGE_CASES["long_gop"]),
-        reason="long_gop.mp4 not found"
+        not _fixture_exists(EDGE_CASES["long_gop"]), reason="long_gop.mp4 not found"
     )
     def test_long_gop(self):
         ft = vex.get_frame_times(_fixture_path(EDGE_CASES["long_gop"]))
         assert ft.frame_count == 150  # 5s * 30fps
 
     @pytest.mark.skipif(
-        not _fixture_exists(EDGE_CASES["truncated"]),
-        reason="truncated.mp4 not found"
+        not _fixture_exists(EDGE_CASES["truncated"]), reason="truncated.mp4 not found"
     )
     def test_truncated(self):
         # Should return times for existing frames without crashing
@@ -183,8 +177,7 @@ class TestEdgeCases:
         assert ft.frame_count >= 0
 
     @pytest.mark.skipif(
-        not _fixture_exists(EDGE_CASES["empty_file"]),
-        reason="empty_file.mp4 not found"
+        not _fixture_exists(EDGE_CASES["empty_file"]), reason="empty_file.mp4 not found"
     )
     def test_empty_file(self):
         ft = vex.get_frame_times(_fixture_path(EDGE_CASES["empty_file"]))
@@ -192,12 +185,10 @@ class TestEdgeCases:
 
     @pytest.mark.skipif(
         not _fixture_exists(EDGE_CASES["no_video_stream"]),
-        reason="no_video_stream.mp4 not found"
+        reason="no_video_stream.mp4 not found",
     )
     def test_no_video_stream(self):
-        ft = vex.get_frame_times(
-            _fixture_path(EDGE_CASES["no_video_stream"])
-        )
+        ft = vex.get_frame_times(_fixture_path(EDGE_CASES["no_video_stream"]))
         assert ft.frame_count == 0
 
 
@@ -215,7 +206,6 @@ if _STREAMING_FIXTURE is None and AVAILABLE_FIXTURES:
 
 @pytest.mark.skipif(_STREAMING_FIXTURE is None, reason="No fixtures available")
 class TestStreamingFrameTimes:
-
     @property
     def path(self):
         return _fixture_path(_STREAMING_FIXTURE)
@@ -229,9 +219,10 @@ class TestStreamingFrameTimes:
         )
         streaming = result.metrics.frame_times(0)
         assert streaming is not None, "frame_times should be populated"
-        assert len(streaming) == standalone.frame_count or abs(
-            len(streaming) - standalone.frame_count
-        ) <= 2
+        assert (
+            len(streaming) == standalone.frame_count
+            or abs(len(streaming) - standalone.frame_count) <= 2
+        )
         # Timestamps should be close (packet PTS vs decoded best_effort_timestamp)
         min_len = min(len(streaming), len(standalone.times))
         np.testing.assert_allclose(
@@ -245,17 +236,15 @@ class TestStreamingFrameTimes:
             collect_frame_times=True,
         )
         # Poll until some times appear or decode finishes
-        seen_times = False
         for _ in range(200):
             ft = handle.peek_frame_times(0)
             if ft is not None and len(ft) > 0:
-                seen_times = True
                 break
             if handle.done:
                 # Check one more time after done
                 ft = handle.peek_frame_times(0)
                 if ft is not None and len(ft) > 0:
-                    seen_times = True
+                    break
                 break
             time.sleep(0.01)
 
@@ -286,15 +275,17 @@ class TestStreamingFrameTimes:
 
 # ── Parametrized streaming cross-validation ──────────────────────────────────
 
-@pytest.mark.parametrize("rel,expected_strategy", AVAILABLE_FIXTURES[:5],
-                         ids=[r for r, _ in AVAILABLE_FIXTURES[:5]])
+
+@pytest.mark.parametrize(
+    "rel,expected_strategy",
+    AVAILABLE_FIXTURES[:5],
+    ids=[r for r, _ in AVAILABLE_FIXTURES[:5]],
+)
 def test_streaming_matches_standalone(rel, expected_strategy):
     """Cross-validate streaming vs standalone for a few fixtures."""
     path = _fixture_path(rel)
     standalone = vex.get_frame_times(path)
-    result = vex.batch_decode(
-        [path], keyframes_only=False, collect_frame_times=True
-    )
+    result = vex.batch_decode([path], keyframes_only=False, collect_frame_times=True)
     streaming = result.metrics.frame_times(0)
     assert streaming is not None
     min_len = min(len(streaming), standalone.frame_count)

@@ -16,15 +16,12 @@ namespace vex {
 // ── Container classification ────────────────────────────────────────────────
 
 static TimestampStrategy classify_container(const std::string& name) {
-    if (name.find("mov") != std::string::npos ||
-        name.find("mp4") != std::string::npos ||
-        name.find("3gp") != std::string::npos ||
-        name.find("3g2") != std::string::npos ||
+    if (name.find("mov") != std::string::npos || name.find("mp4") != std::string::npos ||
+        name.find("3gp") != std::string::npos || name.find("3g2") != std::string::npos ||
         name.find("mj2") != std::string::npos)
         return TimestampStrategy::SAMPLE_TABLE;
 
-    if (name.find("matroska") != std::string::npos ||
-        name.find("webm") != std::string::npos)
+    if (name.find("matroska") != std::string::npos || name.find("webm") != std::string::npos)
         return TimestampStrategy::BLOCK_TIMESTAMP;
 
     if (name == "mpegts" || name == "mpeg" || name == "wtv")
@@ -53,8 +50,7 @@ FrameTimesResult get_frame_times(const std::string& path) {
         return result;
     }
 
-    int video_idx = av_find_best_stream(
-        fmt_ctx, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
+    int video_idx = av_find_best_stream(fmt_ctx, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
     if (video_idx < 0) {
         avformat_close_input(&fmt_ctx);
         return result;
@@ -85,8 +81,7 @@ FrameTimesResult get_frame_times(const std::string& path) {
 
     // ── Codec name ──────────────────────────────────────────────────────
     std::string codec_name;
-    const AVCodecDescriptor* desc =
-        avcodec_descriptor_get(stream->codecpar->codec_id);
+    const AVCodecDescriptor* desc = avcodec_descriptor_get(stream->codecpar->codec_id);
     if (desc && desc->name)
         codec_name = desc->name;
 
@@ -114,8 +109,7 @@ FrameTimesResult get_frame_times(const std::string& path) {
                 result.times_sec[static_cast<size_t>(i)] = i / fps;
         } else if (count > 1 && duration > 0) {
             for (int i = 0; i < count; i++)
-                result.times_sec[static_cast<size_t>(i)] =
-                    i * duration / (count - 1);
+                result.times_sec[static_cast<size_t>(i)] = i * duration / (count - 1);
         }
         result.strategy = TimestampStrategy::FIXED_RATE;
 
@@ -153,9 +147,7 @@ FrameTimesResult get_frame_times(const std::string& path) {
             result.times_sec.resize(static_cast<size_t>(frame_count));
             for (int i = 0; i < frame_count; i++) {
                 result.times_sec[static_cast<size_t>(i)] =
-                    frame_count > 1
-                        ? i * duration / (frame_count - 1)
-                        : 0.0;
+                    frame_count > 1 ? i * duration / (frame_count - 1) : 0.0;
             }
             result.strategy = TimestampStrategy::LINEAR_FALLBACK;
 
@@ -164,8 +156,7 @@ FrameTimesResult get_frame_times(const std::string& path) {
             std::vector<double> times(static_cast<size_t>(total));
             for (int i = 0; i < total; i++) {
                 if (raw_pts[static_cast<size_t>(i)] != AV_NOPTS_VALUE)
-                    times[static_cast<size_t>(i)] =
-                        raw_pts[static_cast<size_t>(i)] * tb;
+                    times[static_cast<size_t>(i)] = raw_pts[static_cast<size_t>(i)] * tb;
                 else
                     times[static_cast<size_t>(i)] = -1.0;
             }
@@ -183,8 +174,7 @@ FrameTimesResult get_frame_times(const std::string& path) {
             // Fill leading invalid entries
             if (first_valid > 0) {
                 for (int i = 0; i < first_valid; i++)
-                    times[static_cast<size_t>(i)] =
-                        times[static_cast<size_t>(first_valid)];
+                    times[static_cast<size_t>(i)] = times[static_cast<size_t>(first_valid)];
             }
 
             // Interpolate interior gaps
@@ -192,16 +182,14 @@ FrameTimesResult get_frame_times(const std::string& path) {
                 if (times[static_cast<size_t>(i)] < 0) {
                     int prev = i - 1;
                     int next = i + 1;
-                    while (next <= last_valid &&
-                           times[static_cast<size_t>(next)] < 0)
+                    while (next <= last_valid && times[static_cast<size_t>(next)] < 0)
                         next++;
                     if (next <= last_valid) {
                         double t0 = times[static_cast<size_t>(prev)];
                         double t1 = times[static_cast<size_t>(next)];
                         int gap = next - prev;
                         for (int j = prev + 1; j < next; j++) {
-                            times[static_cast<size_t>(j)] =
-                                t0 + (t1 - t0) * (j - prev) / gap;
+                            times[static_cast<size_t>(j)] = t0 + (t1 - t0) * (j - prev) / gap;
                         }
                         i = next - 1;  // loop will increment
                     }
@@ -213,8 +201,7 @@ FrameTimesResult get_frame_times(const std::string& path) {
                 double last_t = times[static_cast<size_t>(last_valid)];
                 double step = fps > 0 ? 1.0 / fps : 0.0;
                 for (int i = last_valid + 1; i < total; i++)
-                    times[static_cast<size_t>(i)] =
-                        last_t + (i - last_valid) * step;
+                    times[static_cast<size_t>(i)] = last_t + (i - last_valid) * step;
             }
 
             // Sort for display order (B-frames may arrive out-of-order)
@@ -235,8 +222,7 @@ FrameTimesResult get_frame_times(const std::string& path) {
                 std::vector<double> diffs;
                 diffs.reserve(static_cast<size_t>(total - 1));
                 for (int i = 1; i < total; i++) {
-                    double d = times[static_cast<size_t>(i)] -
-                               times[static_cast<size_t>(i - 1)];
+                    double d = times[static_cast<size_t>(i)] - times[static_cast<size_t>(i - 1)];
                     if (d > 0)
                         diffs.push_back(d);
                 }
@@ -249,14 +235,11 @@ FrameTimesResult get_frame_times(const std::string& path) {
                         double threshold = median * 3.0;
                         double cumulative_offset = 0.0;
                         for (int i = 1; i < total; i++) {
-                            double gap =
-                                times[static_cast<size_t>(i)] -
-                                times[static_cast<size_t>(i - 1)] +
-                                cumulative_offset;
+                            double gap = times[static_cast<size_t>(i)] -
+                                         times[static_cast<size_t>(i - 1)] + cumulative_offset;
                             // Compare original gap (before offset adjustment)
                             double orig_gap =
-                                times[static_cast<size_t>(i)] -
-                                times[static_cast<size_t>(i - 1)];
+                                times[static_cast<size_t>(i)] - times[static_cast<size_t>(i - 1)];
                             if (orig_gap > threshold) {
                                 cumulative_offset -= (orig_gap - median);
                             }

@@ -146,11 +146,13 @@ bool can_hw_decode(AVHWDeviceType device_type, AVCodecID codec_id) {
     // a static table.  avcodec_find_decoder + avcodec_get_hw_config are
     // pure in-memory lookups (no I/O, no device probing).
     const AVCodec* codec = avcodec_find_decoder(codec_id);
-    if (!codec) return false;
+    if (!codec)
+        return false;
 
     for (int i = 0;; ++i) {
         const AVCodecHWConfig* config = avcodec_get_hw_config(codec, i);
-        if (!config) break;
+        if (!config)
+            break;
         if (config->device_type == device_type &&
             (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX))
             return true;
@@ -168,8 +170,10 @@ const char* get_cuvid_decoder_name(AVCodecID codec_id) {
     void* iter = nullptr;
     const AVCodec* c;
     while ((c = av_codec_iterate(&iter)) != nullptr) {
-        if (c->id != codec_id) continue;
-        if (!av_codec_is_decoder(c)) continue;
+        if (c->id != codec_id)
+            continue;
+        if (!av_codec_is_decoder(c))
+            continue;
         const char* name = c->name;
         size_t len = strlen(name);
         if (len > 6 && strcmp(name + len - 6, "_cuvid") == 0)

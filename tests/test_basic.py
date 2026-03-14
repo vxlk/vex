@@ -145,6 +145,7 @@ class TestPyInstallerHook:
             with mock.patch.object(sys, "_MEIPASS", fake_meipass, create=True):
                 try:
                     from vex import _load_native
+
                     _load_native()
                 except ImportError:
                     pass  # expected — _vex_core not built
@@ -177,6 +178,7 @@ class TestPyInstallerHook:
             with mock.patch.object(os, "add_dll_directory", side_effect=spy):
                 try:
                     from vex import _load_native
+
                     _load_native()
                 except ImportError:
                     pass
@@ -620,6 +622,7 @@ class TestBatchDecodeAsync:
 def _memoryview_address(mv: memoryview) -> int:
     """Return the underlying C pointer address of a memoryview."""
     import numpy as np
+
     arr = np.frombuffer(mv, dtype=np.uint8)
     return arr.ctypes.data
 
@@ -642,6 +645,7 @@ class TestPeekStreamStablePointer:
         # Wait for completion
         while not handle.done:
             import time
+
             time.sleep(0.001)
 
         mv1 = handle.peek_stream(file_index=0, level_index=0)
@@ -713,6 +717,7 @@ class TestPeekStreamStablePointer:
         # Wait for completion
         while not handle.done:
             import time
+
             time.sleep(0.001)
 
         mv0 = handle.peek_stream(file_index=0, level_index=0)

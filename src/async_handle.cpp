@@ -101,20 +101,16 @@ std::pair<std::vector<LevelResult>, DecodeMetrics> DecodeHandle::get_results() {
 
 // ── Streaming API ───────────────────────────────────────────────────────────
 
-void DecodeHandle::register_stream_blobs(
-    std::vector<std::vector<VirtualBlob*>> blobs) {
+void DecodeHandle::register_stream_blobs(std::vector<std::vector<VirtualBlob*>> blobs) {
     stream_blobs_ = std::move(blobs);
 }
 
-DecodeHandle::StreamView DecodeHandle::peek_stream(
-    int file_index, int level_index) const {
+DecodeHandle::StreamView DecodeHandle::peek_stream(int file_index, int level_index) const {
     StreamView sv{nullptr, 0};
-    if (level_index < 0 ||
-        level_index >= static_cast<int>(stream_blobs_.size()))
+    if (level_index < 0 || level_index >= static_cast<int>(stream_blobs_.size()))
         return sv;
     auto& level = stream_blobs_[static_cast<size_t>(level_index)];
-    if (file_index < 0 ||
-        file_index >= static_cast<int>(level.size()))
+    if (file_index < 0 || file_index >= static_cast<int>(level.size()))
         return sv;
     VirtualBlob* vb = level[static_cast<size_t>(file_index)];
     if (!vb || !vb->data)
@@ -130,9 +126,8 @@ void DecodeHandle::set_context_keepalive(std::shared_ptr<void> ctx) {
 
 // ── Frame times streaming API ───────────────────────────────────────────────
 
-void DecodeHandle::register_frame_times(
-    std::vector<std::vector<double>>* times,
-    std::vector<std::unique_ptr<std::atomic<int>>>* published) {
+void DecodeHandle::register_frame_times(std::vector<std::vector<double>>* times,
+                                        std::vector<std::unique_ptr<std::atomic<int>>>* published) {
     frame_times_ = times;
     frame_times_published_ = published;
 }
@@ -140,12 +135,11 @@ void DecodeHandle::register_frame_times(
 std::vector<double> DecodeHandle::peek_frame_times(int file_index) const {
     if (!frame_times_ || !frame_times_published_)
         return {};
-    if (file_index < 0 ||
-        file_index >= static_cast<int>(frame_times_->size()))
+    if (file_index < 0 || file_index >= static_cast<int>(frame_times_->size()))
         return {};
 
-    int count = (*frame_times_published_)[static_cast<size_t>(file_index)]
-                    ->load(std::memory_order_acquire);
+    int count =
+        (*frame_times_published_)[static_cast<size_t>(file_index)]->load(std::memory_order_acquire);
     if (count <= 0)
         return {};
 

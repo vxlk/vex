@@ -86,12 +86,10 @@ py::dict metrics_to_dict(const vex::DecodeMetrics& m) {
             // Copy (not move) — fs is a const ref.  Capsule destructor
             // deletes when Python drops the numpy array.
             auto* heap = new std::vector<double>(fs.frame_times);
-            auto cap = py::capsule(heap, [](void* p) {
-                delete static_cast<std::vector<double>*>(p);
-            });
-            fd["frame_times"] = py::array_t<double>(
-                {static_cast<py::ssize_t>(heap->size())},
-                {sizeof(double)}, heap->data(), cap);
+            auto cap =
+                py::capsule(heap, [](void* p) { delete static_cast<std::vector<double>*>(p); });
+            fd["frame_times"] = py::array_t<double>({static_cast<py::ssize_t>(heap->size())},
+                                                    {sizeof(double)}, heap->data(), cap);
         }
         file_list.append(fd);
     }
@@ -187,8 +185,8 @@ py::tuple convert_results(std::vector<vex::LevelResult>& results, vex::DecodeMet
                 if (vb->data && vb->size > 0) {
                     size_t sz = vb->size;
                     uint8_t* ptr = vb->data;
-                    auto cap = py::capsule(
-                        vb, [](void* p) { delete static_cast<vex::VirtualBlob*>(p); });
+                    auto cap =
+                        py::capsule(vb, [](void* p) { delete static_cast<vex::VirtualBlob*>(p); });
                     auto arr = py::array_t<uint8_t>({static_cast<py::ssize_t>(sz)}, {1}, ptr, cap);
                     blob_list.append(arr);
                 } else {
@@ -367,23 +365,22 @@ PYBIND11_MODULE(_vex_core, m) {
                  return py::memoryview::from_memory(static_cast<const void*>(data),
                                                     static_cast<py::ssize_t>(out_size));
              })
-        .def("peek_stream",
-             [](vex::DecodeHandle& self, int file_index,
-                int level_index) -> py::object {
-                 auto sv = self.peek_stream(file_index, level_index);
-                 if (!sv.data || sv.current_size == 0) {
-                     return py::none();
-                 }
-                 // Return a read-only memoryview into the stable VirtualBlob
-                 // memory.  Safe as long as the DecodeHandle is alive (the
-                 // context_keepalive shared_ptr prevents the VirtualBlob from
-                 // being freed).
-                 return py::memoryview::from_memory(
-                     static_cast<const void*>(sv.data),
-                     static_cast<py::ssize_t>(sv.current_size));
-             },
-             py::arg("file_index"), py::arg("level_index"),
-             "Zero-copy view into the streaming JPEG buffer.")
+        .def(
+            "peek_stream",
+            [](vex::DecodeHandle& self, int file_index, int level_index) -> py::object {
+                auto sv = self.peek_stream(file_index, level_index);
+                if (!sv.data || sv.current_size == 0) {
+                    return py::none();
+                }
+                // Return a read-only memoryview into the stable VirtualBlob
+                // memory.  Safe as long as the DecodeHandle is alive (the
+                // context_keepalive shared_ptr prevents the VirtualBlob from
+                // being freed).
+                return py::memoryview::from_memory(static_cast<const void*>(sv.data),
+                                                   static_cast<py::ssize_t>(sv.current_size));
+            },
+            py::arg("file_index"), py::arg("level_index"),
+            "Zero-copy view into the streaming JPEG buffer.")
         .def_property_readonly("progress",
                                [](vex::DecodeHandle& self) -> py::dict {
                                    auto p = self.progress();
@@ -395,26 +392,24 @@ PYBIND11_MODULE(_vex_core, m) {
                                })
         .def_property_readonly("done",
                                [](vex::DecodeHandle& self) -> bool { return self.is_done(); })
-        .def("peek_frame_times",
-             [](vex::DecodeHandle& self, int file_index) -> py::object {
-                 std::vector<double> times;
-                 {
-                     py::gil_scoped_release release;
-                     times = self.peek_frame_times(file_index);
-                 }
-                 if (times.empty())
-                     return py::none();
-                 // Heap + capsule: Python frees when the array is collected.
-                 auto* heap = new std::vector<double>(std::move(times));
-                 auto cap = py::capsule(heap, [](void* p) {
-                     delete static_cast<std::vector<double>*>(p);
-                 });
-                 return py::object(py::array_t<double>(
-                     {static_cast<py::ssize_t>(heap->size())},
-                     {sizeof(double)}, heap->data(), cap));
-             },
-             py::arg("file_index"),
-             "Snapshot of frame times collected so far for a file.")
+        .def(
+            "peek_frame_times",
+            [](vex::DecodeHandle& self, int file_index) -> py::object {
+                std::vector<double> times;
+                {
+                    py::gil_scoped_release release;
+                    times = self.peek_frame_times(file_index);
+                }
+                if (times.empty())
+                    return py::none();
+                // Heap + capsule: Python frees when the array is collected.
+                auto* heap = new std::vector<double>(std::move(times));
+                auto cap =
+                    py::capsule(heap, [](void* p) { delete static_cast<std::vector<double>*>(p); });
+                return py::object(py::array_t<double>({static_cast<py::ssize_t>(heap->size())},
+                                                      {sizeof(double)}, heap->data(), cap));
+            },
+            py::arg("file_index"), "Snapshot of frame times collected so far for a file.")
         .def("result", [](vex::DecodeHandle& self) -> py::tuple {
             self.wait_until_done();
             auto pair = self.get_results();
@@ -440,8 +435,8 @@ PYBIND11_MODULE(_vex_core, m) {
     m.def(
         "batch_decode_async",
         [](const std::vector<std::string>& paths, const std::vector<vex::LevelConfig>& levels,
-           int max_threads, bool keyframes_only, int frame_skip,
-           bool use_hw_accel, size_t blob_reservation,
+           int max_threads, bool keyframes_only, int frame_skip, bool use_hw_accel,
+           size_t blob_reservation,
            bool collect_frame_times) -> std::shared_ptr<vex::DecodeHandle> {
             vex::BatchConfig cfg{};
             cfg.paths = paths;
@@ -457,9 +452,8 @@ PYBIND11_MODULE(_vex_core, m) {
             return vex::Orchestrator::batch_decode_async(cfg);
         },
         py::arg("paths"), py::arg("levels"), py::arg("max_threads") = 0,
-        py::arg("keyframes_only") = true, py::arg("frame_skip") = 1,
-        py::arg("use_hw_accel") = true, py::arg("blob_reservation") = 0,
-        py::arg("collect_frame_times") = false,
+        py::arg("keyframes_only") = true, py::arg("frame_skip") = 1, py::arg("use_hw_accel") = true,
+        py::arg("blob_reservation") = 0, py::arg("collect_frame_times") = false,
         "Decode video keyframes asynchronously. Returns DecodeHandle.");
 
     // ── get_frame_times (standalone, packet-only scan) ──────────────────────
@@ -474,12 +468,10 @@ PYBIND11_MODULE(_vex_core, m) {
             py::dict d;
             // Heap + capsule: Python frees when the numpy array is collected.
             auto* heap = new std::vector<double>(std::move(result.times_sec));
-            auto cap = py::capsule(heap, [](void* p) {
-                delete static_cast<std::vector<double>*>(p);
-            });
-            d["times"] = py::array_t<double>(
-                {static_cast<py::ssize_t>(heap->size())},
-                {sizeof(double)}, heap->data(), cap);
+            auto cap =
+                py::capsule(heap, [](void* p) { delete static_cast<std::vector<double>*>(p); });
+            d["times"] = py::array_t<double>({static_cast<py::ssize_t>(heap->size())},
+                                             {sizeof(double)}, heap->data(), cap);
             d["frame_count"] = result.frame_count;
             d["duration_sec"] = result.duration_sec;
             d["fps"] = result.fps;
@@ -488,6 +480,5 @@ PYBIND11_MODULE(_vex_core, m) {
             d["codec"] = result.codec;
             return d;
         },
-        py::arg("path"),
-        "Get per-frame presentation timestamps via packet scan (no decode).");
+        py::arg("path"), "Get per-frame presentation timestamps via packet scan (no decode).");
 }

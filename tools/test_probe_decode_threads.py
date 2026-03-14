@@ -10,7 +10,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "python"))
 
-from vex import probe_decode_threads, probe_batch_threads
+from vex import probe_batch_threads, probe_decode_threads  # noqa: E402
 
 FIXTURES = PROJECT_ROOT / "fixtures"
 
@@ -30,13 +30,37 @@ def test_valid_files_return_positive():
     failures = []
     count = 0
     for path in sorted(FIXTURES.rglob("*")):
-        if not path.is_file() or path.suffix == ".mp4" and path.name == "empty_file.mp4":
+        if (
+            not path.is_file()
+            or path.suffix == ".mp4"
+            and path.name == "empty_file.mp4"
+        ):
             continue
         if path.suffix not in (
-            ".mp4", ".mkv", ".avi", ".ts", ".flv", ".mov",
-            ".webm", ".ogv", ".mpg", ".vob", ".wmv", ".asf",
-            ".3gp", ".3g2", ".nut", ".ivf", ".f4v", ".m4v",
-            ".swf", ".rm", ".wtv", ".mxf", ".gxf", ".dv",
+            ".mp4",
+            ".mkv",
+            ".avi",
+            ".ts",
+            ".flv",
+            ".mov",
+            ".webm",
+            ".ogv",
+            ".mpg",
+            ".vob",
+            ".wmv",
+            ".asf",
+            ".3gp",
+            ".3g2",
+            ".nut",
+            ".ivf",
+            ".f4v",
+            ".m4v",
+            ".swf",
+            ".rm",
+            ".wtv",
+            ".mxf",
+            ".gxf",
+            ".dv",
         ):
             continue
         if path.name in ("empty_file.mp4", "no_video_stream.mp4", "truncated.mp4"):
@@ -194,15 +218,17 @@ def test_batch_single_file_string():
 def test_batch_empty_dir(tmp_path=None):
     """probe_batch_threads with an empty directory should return 0."""
     import tempfile
+
     with tempfile.TemporaryDirectory() as td:
         result = probe_batch_threads(td)
         assert result == 0, f"empty dir should be 0, got {result}"
-    print(f"  PASS: empty directory -> 0")
+    print("  PASS: empty directory -> 0")
 
 
 def test_non_video_returns_zero():
     """Non-video files (text, images, etc.) should return 0."""
     import tempfile
+
     cases = {
         "test.txt": b"hello world",
         "test.json": b'{"key": "value"}',

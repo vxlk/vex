@@ -64,11 +64,11 @@ struct BatchConfig {
     std::vector<LevelConfig> levels;
     int max_threads = 0;  // 0 = auto (use hardware concurrency)
     bool keyframes_only = false;
-    int frame_skip = 1;        // ignored if keyframes_only=true
-    bool use_hw_accel = true;  // false → skip GPU decode, use software only
-    size_t blob_reservation = 0;  // VirtualBlob reservation per file/level.
-                                   // 0 = default (256 MB).  Only affects
-                                   // async in-memory JPEG_STREAM output.
+    int frame_skip = 1;                // ignored if keyframes_only=true
+    bool use_hw_accel = true;          // false → skip GPU decode, use software only
+    size_t blob_reservation = 0;       // VirtualBlob reservation per file/level.
+                                       // 0 = default (256 MB).  Only affects
+                                       // async in-memory JPEG_STREAM output.
     bool collect_frame_times = false;  // collect per-frame PTS during decode
 };
 
@@ -124,7 +124,7 @@ struct FileStats {
     std::string codec_name;  // e.g. "h264", "hevc", "vp9"
     int source_width = 0;
     int source_height = 0;
-    bool hw_accel_used = false;  // true if GPU decode was used
+    bool hw_accel_used = false;       // true if GPU decode was used
     std::vector<double> frame_times;  // empty unless collect_frame_times was set
 };
 

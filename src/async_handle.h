@@ -48,20 +48,18 @@ public:
 
     // Register VirtualBlob pointers for streaming access.
     // blobs[level_index][file_index] = non-owning pointer to VirtualBlob.
-    void register_stream_blobs(
-        std::vector<std::vector<VirtualBlob*>> blobs);
+    void register_stream_blobs(std::vector<std::vector<VirtualBlob*>> blobs);
 
     // Zero-copy view into the streaming JPEG buffer.
     struct StreamView {
-        const uint8_t* data;       // stable base pointer (never moves)
-        size_t current_size;       // atomically-published byte count
+        const uint8_t* data;  // stable base pointer (never moves)
+        size_t current_size;  // atomically-published byte count
     };
     StreamView peek_stream(int file_index, int level_index) const;
 
     // ── Frame times streaming API ─────────────────────────────────────────
-    void register_frame_times(
-        std::vector<std::vector<double>>* times,
-        std::vector<std::unique_ptr<std::atomic<int>>>* published);
+    void register_frame_times(std::vector<std::vector<double>>* times,
+                              std::vector<std::unique_ptr<std::atomic<int>>>* published);
 
     // Returns frame times collected so far for a file (thread-safe snapshot).
     std::vector<double> peek_frame_times(int file_index) const;

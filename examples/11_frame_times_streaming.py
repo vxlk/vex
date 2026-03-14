@@ -32,7 +32,7 @@ print(f"  last:  {times[-1]:.4f}s")
 
 # Compare against standalone packet scan
 standalone = vex.get_frame_times(VIDEO)
-diff = np.abs(times[:len(standalone.times)] - standalone.times[:len(times)])
+diff = np.abs(times[: len(standalone.times)] - standalone.times[: len(times)])
 print(f"\nStandalone vs streaming max delta: {diff.max():.6f}s")
 
 # --- Verify disabled by default ----------------------------------------------
@@ -85,4 +85,6 @@ result_skip = vex.batch_decode(
 skip_times = result_skip.metrics.frame_times(0)
 print(f"Decoded {result_skip.metrics.keyframes_decoded} frames (every 3rd)")
 print(f"Collected {len(skip_times)} timestamps")
-print(f"  Matches decoded count: {len(skip_times) == result_skip.metrics.keyframes_decoded}")
+print(
+    f"  Matches decoded count: {len(skip_times) == result_skip.metrics.keyframes_decoded}"
+)

@@ -21,13 +21,13 @@ namespace vex {
 class VirtualBlob {
 public:
     static constexpr size_t DEFAULT_RESERVATION = 256ULL * 1024 * 1024;  // 256 MB
-    static constexpr size_t COMMIT_CHUNK        = 1ULL * 1024 * 1024;    // 1 MB
+    static constexpr size_t COMMIT_CHUNK = 1ULL * 1024 * 1024;           // 1 MB
 
     uint8_t* data = nullptr;
-    size_t size = 0;                       // bytes written (worker-only)
-    size_t committed = 0;                  // bytes backed by physical pages
-    size_t reserved = 0;                   // total virtual address range
-    std::vector<int64_t> offsets;          // byte offset of each JPEG
+    size_t size = 0;               // bytes written (worker-only)
+    size_t committed = 0;          // bytes backed by physical pages
+    size_t reserved = 0;           // total virtual address range
+    std::vector<int64_t> offsets;  // byte offset of each JPEG
 
     // Consumer-safe published size.  The worker stores this with
     // memory_order_release after writing JPEG data.  The consumer
@@ -50,14 +50,15 @@ public:
 
     // Ensure at least `needed` bytes are available past `size`.
     // Commits new pages in COMMIT_CHUNK increments.
-    // Returns false if the request exceeds the reservation.
+    // If the request exceeds the current reservation, automatically
+    // grows to a new 2x region (copies data, retires the old region
+    // so outstanding memoryviews remain valid).
+    // Returns false only on OS-level allocation failure.
     bool ensure_remaining(size_t needed);
 
     // Publish the current size to consumers (atomic release).
     // Call this after writing data so peek_stream sees the new bytes.
-    void publish() {
-        published_size.store(size, std::memory_order_release);
-    }
+    void publish() { published_size.store(size, std::memory_order_release); }
 
     // Reset to empty without releasing the reservation.
     // Used for HW retry / sequential fallback.
@@ -67,7 +68,19 @@ public:
     void release();
 
 private:
+    // Old VM regions kept alive so outstanding memoryviews don't dangle.
+    struct RetiredRegion {
+        uint8_t* base;
+        size_t reserved_size;
+    };
+    std::vector<RetiredRegion> retired_;
+
+    // Grow to a new reservation of at least `new_min_reserved` bytes.
+    // Allocates a new region, copies existing data, retires the old region.
+    bool grow(size_t new_min_reserved);
+
     void free_vm();
+    void free_retired();
 
     static size_t page_size();
     static size_t round_up(size_t n, size_t alignment);

@@ -347,8 +347,10 @@ def print_batch_summary(aggregate: dict, rows: list[dict], label: str):
         f"{aggregate['total_frames']} frames, single call)"
     )
     print(f"    total:     {aggregate['vex_time'] * 1000:>8.1f} ms")
-    print(f"    amortized: {aggregate['vex_amortized'] * 1000:>8.1f} ms  "
-          f"(= {aggregate['vex_time'] * 1000:.0f} / {aggregate['n_files']})")
+    print(
+        f"    amortized: {aggregate['vex_amortized'] * 1000:>8.1f} ms  "
+        f"(= {aggregate['vex_time'] * 1000:.0f} / {aggregate['n_files']})"
+    )
     print(f"  FFmpeg image2pipe (sequential, {aggregate['n_files']} subprocesses)")
     print(f"    total:     {aggregate['ffmpeg_time'] * 1000:>8.1f} ms")
     print(
@@ -366,7 +368,7 @@ def print_batch_summary(aggregate: dict, rows: list[dict], label: str):
             f"{r['ffmpeg_time'] * 1000:>8.1f}ms "
             f"{r['vex_amortized'] * 1000:>10.1f}ms*"
         )
-    print(f"\n  * amortized = total batch wall time / N files (not per-format)")
+    print("\n  * amortized = total batch wall time / N files (not per-format)")
 
 
 def print_perfile_summary(aggregate: dict, rows: list[dict], label: str):
@@ -378,8 +380,7 @@ def print_perfile_summary(aggregate: dict, rows: list[dict], label: str):
     )
     print(f"    total:     {aggregate['vex_time'] * 1000:>8.1f} ms")
     print(
-        f"    avg:       "
-        f"{aggregate['vex_time'] / aggregate['n_files'] * 1000:>8.1f} ms"
+        f"    avg:       {aggregate['vex_time'] / aggregate['n_files'] * 1000:>8.1f} ms"
     )
     print(f"  FFmpeg image2pipe ({aggregate['n_files']} subprocesses)")
     print(f"    total:     {aggregate['ffmpeg_time'] * 1000:>8.1f} ms")
@@ -618,7 +619,9 @@ def main():
         agg, rows = run_batch_benchmark(
             fixtures, args.width, args.height, args.quality, args.runs
         )
-        print_batch_summary(agg, rows, f"Thumbnail ({args.width}x{args.height} q{args.quality})")
+        print_batch_summary(
+            agg, rows, f"Thumbnail ({args.width}x{args.height} q{args.quality})"
+        )
         generate_batch_chart(rows, agg, ASSETS_DIR / "benchmark_batch_thumb.png")
 
     # -- Section 2: Batched native --------------------------------------------

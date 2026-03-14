@@ -285,7 +285,9 @@ def main():
     hub.join()
     elapsed = time.perf_counter() - t0
 
-    print(f"\n\nDone in {elapsed:.2f}s  |  {poll_count} polls  |  {total_saved} frames saved\n")
+    print(
+        f"\n\nDone in {elapsed:.2f}s  |  {poll_count} polls  |  {total_saved} frames saved\n"
+    )
 
     # Per-stream summary
     final = hub.finalize()
