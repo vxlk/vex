@@ -1,7 +1,10 @@
-"""Tests for VirtualBlob growth (reallocation when blob_reservation is exceeded).
+"""Stress-test VirtualBlob's ability to grow under memory pressure.
 
-Uses a very small blob_reservation to force the VirtualBlob to grow during
-decode, then verifies data integrity, no stale data, and no crashes.
+Forces the blob to exceed its initial reservation by using a tiny
+blob_reservation, then confirms that the output is still correct --
+no stale pointers, no data corruption, no crashes.  This is the
+safety net for the virtual-memory growth path that most real workloads
+never hit.
 """
 
 from __future__ import annotations

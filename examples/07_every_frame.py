@@ -1,4 +1,10 @@
-"""Every-frame decode with frame_skip — extract thumbnails for all frames."""
+"""Compare the three frame selection modes: all frames, frame_skip, and
+keyframes-only.
+
+Shows the trade-off between completeness and speed: decoding every frame
+gives full coverage, frame_skip gives an even sample at reduced cost, and
+keyframes-only is the fastest but only hits I-frames.
+"""
 
 import os
 import sys

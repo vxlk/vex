@@ -1,7 +1,9 @@
-"""Full-resolution keyframe extraction — get I-frames at source quality.
+"""Extract keyframes at the video's native resolution with zero scaling.
 
-The default LevelConfig uses width=NATIVE, height=NATIVE, quality=100
-so the output matches the source resolution with no scaling step at all.
+Confirms that the default LevelConfig (NATIVE width/height, quality 100)
+bypasses the scaler entirely, so the output is a lossless JPEG re-encode of
+the raw decoder output.  Useful for archival-quality thumbnail extraction
+where you want pixel-perfect fidelity.
 """
 
 import os

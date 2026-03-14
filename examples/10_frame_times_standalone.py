@@ -1,4 +1,11 @@
-"""Standalone video probe — get every frame's PTS without decoding."""
+"""Discover a video's timing structure without decoding any pixels.
+
+Uses vex.probe() to extract per-frame presentation timestamps from
+the container's packet metadata alone, then inspects the timing
+characteristics (jitter, intervals, strategy) across different container
+families.  Useful for understanding how a video is structured before
+deciding what to decode.
+"""
 
 import os
 import sys

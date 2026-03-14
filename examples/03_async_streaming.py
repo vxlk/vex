@@ -1,4 +1,10 @@
-"""Async streaming — process thumbnails as they arrive during decode."""
+"""Start decoding in the background and consume frames as they arrive.
+
+Demonstrates the event-driven workflow: launch an async decode, poll for
+FrameEvents, and process each JPEG the instant it's ready rather than
+waiting for the entire batch to finish.  This is the pattern for building
+responsive UIs or real-time pipelines on top of vex.
+"""
 
 import os
 import sys

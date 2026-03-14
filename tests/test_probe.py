@@ -1,4 +1,11 @@
-"""Tests for vex.probe and streaming frame time collection."""
+"""Validate that vex.probe() returns accurate timestamps across every
+container format, and that streaming frame-time collection during decode
+agrees with the standalone probe.
+
+Parametrized across all fixture formats to catch container-specific
+timestamp quirks (PES discontinuities, fixed-rate synthesis, B-frame
+reordering) and edge cases (single frame, truncated, empty).
+"""
 
 import os
 import sys

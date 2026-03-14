@@ -1,4 +1,11 @@
-"""Batch decode across multiple container formats and inspect per-file metrics."""
+"""Throw every fixture format at vex in one batch and inspect the per-file
+breakdown.
+
+Validates that the pipeline handles a mixed bag of containers (MP4, MKV,
+AVI, TS, FLV, ...) in a single call and surfaces per-file diagnostics like
+which index strategy was chosen, how many keyframes were found, and the
+codec used.
+"""
 
 import os
 import sys

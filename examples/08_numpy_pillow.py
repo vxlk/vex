@@ -1,4 +1,10 @@
-"""Zero-copy numpy access — extract JPEGs via index array, decode with Pillow."""
+"""Integrate vex with numpy and Pillow without copying the JPEG data.
+
+Demonstrates that vex's output blobs are zero-copy numpy arrays backed by
+C++ memory: you slice them with the offset table, hand the slice to Pillow
+for pixel decoding, and build a (N, H, W, 3) pixel tensor -- all without
+ever duplicating the compressed JPEG bytes on the Python side.
+"""
 
 import os
 import sys

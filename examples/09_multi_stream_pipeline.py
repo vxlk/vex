@@ -1,16 +1,11 @@
-"""Multi-file async streaming pipeline — decode N videos concurrently,
-use zero-copy views into vex's VirtualBlob buffers, and have a client
-poll for new segments.
+"""Decode many videos concurrently and multiplex their output into a
+single consumer loop.
 
-Architecture:
-  - One batch_decode_async handle per video, all running concurrently.
-  - A background poll thread drains FrameEvents from every handle and
-    appends them to a per-stream event list.  Each event carries
-    blob_offset and jpeg_size — the index into the stable VirtualBlob.
-  - A client loop polls each stream's event index, compares against its
-    own read cursor, and reads the new segment via peek_stream — a
-    zero-copy memoryview into the C++ blob (no copy until the client
-    needs to materialize bytes, e.g. for file I/O).
+This is the pattern for building a video server or multi-file preview
+tool: each video gets its own async decode handle, a background thread
+collects FrameEvents from all of them, and a client loop reads new
+frames via zero-copy memoryviews into vex's stable VirtualBlob buffers.
+No data is copied until the consumer explicitly materializes bytes.
 
 Usage:
     python examples/09_multi_stream_pipeline.py [video_dir]

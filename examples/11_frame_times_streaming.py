@@ -1,4 +1,10 @@
-"""Streaming frame timestamps — collect PTS as a side-effect of decode."""
+"""Collect frame timestamps as a side-effect of decoding, rather than
+a separate probe pass.
+
+Shows the collect_frame_times option: timestamps accumulate during decode
+and can be peeked at in real time (async) or retrieved after completion.
+Cross-validates against the standalone probe to confirm they agree.
+"""
 
 import os
 import sys

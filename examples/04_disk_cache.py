@@ -1,4 +1,9 @@
-"""Disk cache — decode to disk and reload via memory-mapped CachedLevel."""
+"""Persist decoded thumbnails to disk and reload them without re-decoding.
+
+Shows the write-once-read-many workflow: decode a video to a vex cache file,
+then reopen it later with CachedLevel for instant, memory-mapped random
+access to any frame.  Useful when the same video will be viewed repeatedly.
+"""
 
 import os
 import sys

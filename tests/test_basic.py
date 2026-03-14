@@ -1,8 +1,9 @@
-"""Basic tests for the vex Python layer.
+"""Verify the Python API surface works correctly end-to-end.
 
-Tests are split into two groups:
-  - Pure-Python tests that run without the C++ extension module.
-  - Integration tests that require _vex_core to be built (auto-skipped otherwise).
+Covers both pure-Python behavior (config validation, dataclass defaults,
+metric calculations) and integration with the C++ extension (keyframe
+decode, multi-level output, disk cache round-tripping, HW accel toggling).
+Integration tests auto-skip when _vex_core isn't built.
 """
 
 from __future__ import annotations

@@ -1,4 +1,9 @@
-"""Basic single-file decode — extract keyframe thumbnails as JPEGs."""
+"""Simplest possible vex usage: open one video, get its keyframes as JPEGs.
+
+Demonstrates the minimal path from a video file to individual JPEG bytes on
+disk, using typed accessors to retrieve the result without any isinstance
+checks.  Start here if you've never used vex before.
+"""
 
 import os
 import sys

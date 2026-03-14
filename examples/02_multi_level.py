@@ -1,4 +1,9 @@
-"""Multi-level decode — produce a sprite atlas and a JPEG stream in one pass."""
+"""Produce multiple output resolutions from a single decode pass.
+
+Shows how to define two levels -- a tiny sprite atlas for timeline scrubbing
+and a full-resolution JPEG stream for detail views -- so the video is only
+decoded once while both outputs are generated simultaneously.
+"""
 
 import os
 import sys

@@ -1,10 +1,10 @@
-"""FFmpeg regression tests — verify vex output matches FFmpeg image2pipe.
+"""Guard against decode divergence from FFmpeg's own output.
 
-Compares vex's decode pipeline against FFmpeg's equivalent pipeline for
-every container format in the fixtures. Verifies:
-  1. Frame counts match between vex and FFmpeg.
-  2. Pixel content is near-identical (high PSNR).
-  3. vex is faster than invoking FFmpeg.
+Runs vex and FFmpeg's image2pipe side-by-side on every fixture format,
+then compares frame counts and pixel content (via PSNR).  If vex ever
+produces different frames than FFmpeg for the same input, this suite
+catches it -- making it safe to change the decode pipeline without
+worrying about silent regressions.
 """
 
 from __future__ import annotations
