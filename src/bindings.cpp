@@ -5,10 +5,30 @@
 #include "orchestrator.h"
 #include "async_handle.h"
 #include "decoder.h"
+#include "frame_timer.h"
 
 namespace py = pybind11;
 
 namespace {
+
+// ── Memory ownership: the capsule pattern ───────────────────────────────────
+//
+// numpy arrays need their backing memory to outlive the C++ function that
+// created them.  A stack-local std::vector is destroyed on return, so we
+// can't just hand numpy a pointer into it.
+//
+// The solution used throughout this file:
+//
+//   1. Move (or copy) the vector onto the heap with `new`.
+//   2. Wrap the heap pointer in a py::capsule whose destructor calls
+//      `delete` on it.
+//   3. Pass the capsule as the numpy array's "base" object.
+//
+// Python's GC ref-counts the numpy array → capsule chain.  When the last
+// Python reference to the array is dropped, the capsule destructor fires
+// and frees the C++ vector.  No leak, no manual free, no prevent-copy —
+// Python owns the memory from the moment the capsule is constructed.
+//
 
 // ── Helper: convert LevelResult vector + metrics to Python objects ──────────
 
@@ -62,6 +82,17 @@ py::dict metrics_to_dict(const vex::DecodeMetrics& m) {
         fd["source_width"] = fs.source_width;
         fd["source_height"] = fs.source_height;
         fd["hw_accel_used"] = fs.hw_accel_used;
+        if (!fs.frame_times.empty()) {
+            // Copy (not move) — fs is a const ref.  Capsule destructor
+            // deletes when Python drops the numpy array.
+            auto* heap = new std::vector<double>(fs.frame_times);
+            auto cap = py::capsule(heap, [](void* p) {
+                delete static_cast<std::vector<double>*>(p);
+            });
+            fd["frame_times"] = py::array_t<double>(
+                {static_cast<py::ssize_t>(heap->size())},
+                {sizeof(double)}, heap->data(), cap);
+        }
         file_list.append(fd);
     }
     d["file_stats"] = file_list;
@@ -72,14 +103,15 @@ py::dict metrics_to_dict(const vex::DecodeMetrics& m) {
 py::dict convert_sprite_atlas_result(vex::SpriteAtlasResult& sar) {
     py::dict d;
 
-    // Move blob to heap — capsule takes ownership, zero-copy to numpy
+    // Move blob to heap.  Python (via capsule destructor) frees it when
+    // the numpy array is garbage-collected.
     auto* blob_heap = new std::vector<uint8_t>(std::move(sar.blob));
     auto blob_cap =
         py::capsule(blob_heap, [](void* p) { delete static_cast<std::vector<uint8_t>*>(p); });
     d["blob"] = py::array_t<uint8_t>({static_cast<py::ssize_t>(blob_heap->size())}, {1},
                                      blob_heap->data(), blob_cap);
 
-    // Move offsets to heap — capsule takes ownership, zero-copy
+    // Same pattern for the offset table.
     auto* offs_heap = new std::vector<int64_t>(std::move(sar.offsets));
     auto offs_cap =
         py::capsule(offs_heap, [](void* p) { delete static_cast<std::vector<int64_t>*>(p); });
@@ -100,7 +132,7 @@ py::dict convert_disk_result(vex::DiskResult& dr) {
     d["frame_count"] = dr.frame_count;
     d["total_bytes"] = dr.total_bytes;
 
-    // Move metadata to heap — capsule takes ownership, zero-copy
+    // Heap + capsule: Python frees when the numpy array is collected.
     auto* meta_heap = new std::vector<std::array<int64_t, 3>>(std::move(dr.metadata));
     auto meta_cap = py::capsule(
         meta_heap, [](void* p) { delete static_cast<std::vector<std::array<int64_t, 3>>*>(p); });
@@ -123,16 +155,25 @@ py::tuple convert_results(std::vector<vex::LevelResult>& results, vex::DecodeMet
         if (lr.jpeg_stream.has_value()) {
             auto& jsr = lr.jpeg_stream.value();
 
-            // Move each VirtualBlob to the heap so a capsule can own it.
-            // The capsule destructor calls ~VirtualBlob which releases
-            // the VM reservation (VirtualFree / munmap).
+            // Each VirtualBlob produces TWO numpy arrays (data + offsets),
+            // each needing independent lifetimes.  We split ownership:
+            //
+            //   offsets array → capsule owns a heap std::vector<int64_t>
+            //                   (moved out of VirtualBlob::offsets)
+            //
+            //   data array   → capsule owns the VirtualBlob* itself
+            //                   (destructor calls ~VirtualBlob → VirtualFree)
+            //
+            // Python GC can free them in any order — the offsets vector is
+            // self-contained (moved out), and the VirtualBlob's VM pages
+            // are released independently.
             py::list blob_list;
             py::list offsets_list;
             for (auto& blob : jsr.blobs) {
                 auto* vb = new vex::VirtualBlob(std::move(blob));
 
-                // Offsets array — points into vb->offsets (capsule prevents
-                // the VirtualBlob from being destroyed while numpy is alive)
+                // Move offsets to their own heap vector so the numpy array
+                // doesn't depend on the VirtualBlob's lifetime.
                 auto* offs_heap = new std::vector<int64_t>(std::move(vb->offsets));
                 auto offs_cap = py::capsule(
                     offs_heap, [](void* p) { delete static_cast<std::vector<int64_t>*>(p); });
@@ -140,7 +181,9 @@ py::tuple convert_results(std::vector<vex::LevelResult>& results, vex::DecodeMet
                                           {sizeof(int64_t)}, offs_heap->data(), offs_cap);
                 offsets_list.append(offs);
 
-                // Data array — capsule owns the VirtualBlob
+                // Data array — capsule owns the VirtualBlob itself.
+                // When Python drops the data array, capsule destructor
+                // deletes vb → ~VirtualBlob → VirtualFree/munmap.
                 if (vb->data && vb->size > 0) {
                     size_t sz = vb->size;
                     uint8_t* ptr = vb->data;
@@ -149,6 +192,8 @@ py::tuple convert_results(std::vector<vex::LevelResult>& results, vex::DecodeMet
                     auto arr = py::array_t<uint8_t>({static_cast<py::ssize_t>(sz)}, {1}, ptr, cap);
                     blob_list.append(arr);
                 } else {
+                    // Empty blob (file failed to decode) — delete now,
+                    // nothing to expose to Python.
                     delete vb;
                     blob_list.append(py::array_t<uint8_t>(0));
                 }
@@ -157,7 +202,7 @@ py::tuple convert_results(std::vector<vex::LevelResult>& results, vex::DecodeMet
             d["blobs"] = blob_list;
             d["offsets"] = offsets_list;
 
-            // Move metadata to heap — capsule ownership, zero-copy
+            // Heap + capsule: Python frees when the numpy array is collected.
             if (!jsr.metadata.empty()) {
                 auto* meta_heap = new std::vector<std::array<int64_t, 3>>(std::move(jsr.metadata));
                 auto meta_cap = py::capsule(meta_heap, [](void* p) {
@@ -203,6 +248,17 @@ PYBIND11_MODULE(_vex_core, m) {
         .value("SKIPPED", vex::IndexStrategy::SKIPPED)
         .export_values();
 
+    // ── TimestampStrategy enum ───────────────────────────────────────────────
+    py::enum_<vex::TimestampStrategy>(m, "TimestampStrategy")
+        .value("SAMPLE_TABLE", vex::TimestampStrategy::SAMPLE_TABLE)
+        .value("BLOCK_TIMESTAMP", vex::TimestampStrategy::BLOCK_TIMESTAMP)
+        .value("PES_TIMESTAMP", vex::TimestampStrategy::PES_TIMESTAMP)
+        .value("TAG_TIMESTAMP", vex::TimestampStrategy::TAG_TIMESTAMP)
+        .value("FIXED_RATE", vex::TimestampStrategy::FIXED_RATE)
+        .value("GENERIC_PTS", vex::TimestampStrategy::GENERIC_PTS)
+        .value("LINEAR_FALLBACK", vex::TimestampStrategy::LINEAR_FALLBACK)
+        .export_values();
+
     // ── OutputFormat enum ───────────────────────────────────────────────────
     py::enum_<vex::OutputFormat>(m, "OutputFormat")
         .value("JPEG_STREAM", vex::OutputFormat::JPEG_STREAM)
@@ -242,7 +298,8 @@ PYBIND11_MODULE(_vex_core, m) {
     m.def(
         "batch_decode",
         [](const std::vector<std::string>& paths, const std::vector<vex::LevelConfig>& levels,
-           int max_threads, bool keyframes_only, int frame_skip, bool use_hw_accel) -> py::tuple {
+           int max_threads, bool keyframes_only, int frame_skip, bool use_hw_accel,
+           bool collect_frame_times) -> py::tuple {
             vex::BatchConfig cfg{};
             cfg.paths = paths;
             cfg.levels = levels;
@@ -250,6 +307,7 @@ PYBIND11_MODULE(_vex_core, m) {
             cfg.keyframes_only = keyframes_only;
             cfg.frame_skip = frame_skip;
             cfg.use_hw_accel = use_hw_accel;
+            cfg.collect_frame_times = collect_frame_times;
 
             std::vector<vex::LevelResult> results;
             vex::DecodeMetrics metrics;
@@ -266,6 +324,7 @@ PYBIND11_MODULE(_vex_core, m) {
         },
         py::arg("paths"), py::arg("levels"), py::arg("max_threads") = 0,
         py::arg("keyframes_only") = true, py::arg("frame_skip") = 1, py::arg("use_hw_accel") = true,
+        py::arg("collect_frame_times") = false,
         "Decode video keyframes synchronously. Returns (results_list, metrics_dict).");
 
     // ── DecodeHandle wrapper ────────────────────────────────────────────────
@@ -336,6 +395,26 @@ PYBIND11_MODULE(_vex_core, m) {
                                })
         .def_property_readonly("done",
                                [](vex::DecodeHandle& self) -> bool { return self.is_done(); })
+        .def("peek_frame_times",
+             [](vex::DecodeHandle& self, int file_index) -> py::object {
+                 std::vector<double> times;
+                 {
+                     py::gil_scoped_release release;
+                     times = self.peek_frame_times(file_index);
+                 }
+                 if (times.empty())
+                     return py::none();
+                 // Heap + capsule: Python frees when the array is collected.
+                 auto* heap = new std::vector<double>(std::move(times));
+                 auto cap = py::capsule(heap, [](void* p) {
+                     delete static_cast<std::vector<double>*>(p);
+                 });
+                 return py::object(py::array_t<double>(
+                     {static_cast<py::ssize_t>(heap->size())},
+                     {sizeof(double)}, heap->data(), cap));
+             },
+             py::arg("file_index"),
+             "Snapshot of frame times collected so far for a file.")
         .def("result", [](vex::DecodeHandle& self) -> py::tuple {
             self.wait_until_done();
             auto pair = self.get_results();
@@ -362,7 +441,8 @@ PYBIND11_MODULE(_vex_core, m) {
         "batch_decode_async",
         [](const std::vector<std::string>& paths, const std::vector<vex::LevelConfig>& levels,
            int max_threads, bool keyframes_only, int frame_skip,
-           bool use_hw_accel, size_t blob_reservation) -> std::shared_ptr<vex::DecodeHandle> {
+           bool use_hw_accel, size_t blob_reservation,
+           bool collect_frame_times) -> std::shared_ptr<vex::DecodeHandle> {
             vex::BatchConfig cfg{};
             cfg.paths = paths;
             cfg.levels = levels;
@@ -371,6 +451,7 @@ PYBIND11_MODULE(_vex_core, m) {
             cfg.frame_skip = frame_skip;
             cfg.use_hw_accel = use_hw_accel;
             cfg.blob_reservation = blob_reservation;
+            cfg.collect_frame_times = collect_frame_times;
 
             py::gil_scoped_release release;
             return vex::Orchestrator::batch_decode_async(cfg);
@@ -378,5 +459,35 @@ PYBIND11_MODULE(_vex_core, m) {
         py::arg("paths"), py::arg("levels"), py::arg("max_threads") = 0,
         py::arg("keyframes_only") = true, py::arg("frame_skip") = 1,
         py::arg("use_hw_accel") = true, py::arg("blob_reservation") = 0,
+        py::arg("collect_frame_times") = false,
         "Decode video keyframes asynchronously. Returns DecodeHandle.");
+
+    // ── get_frame_times (standalone, packet-only scan) ──────────────────────
+    m.def(
+        "get_frame_times",
+        [](const std::string& path) -> py::dict {
+            vex::FrameTimesResult result;
+            {
+                py::gil_scoped_release release;
+                result = vex::get_frame_times(path);
+            }
+            py::dict d;
+            // Heap + capsule: Python frees when the numpy array is collected.
+            auto* heap = new std::vector<double>(std::move(result.times_sec));
+            auto cap = py::capsule(heap, [](void* p) {
+                delete static_cast<std::vector<double>*>(p);
+            });
+            d["times"] = py::array_t<double>(
+                {static_cast<py::ssize_t>(heap->size())},
+                {sizeof(double)}, heap->data(), cap);
+            d["frame_count"] = result.frame_count;
+            d["duration_sec"] = result.duration_sec;
+            d["fps"] = result.fps;
+            d["strategy"] = static_cast<int>(result.strategy);
+            d["container"] = result.container;
+            d["codec"] = result.codec;
+            return d;
+        },
+        py::arg("path"),
+        "Get per-frame presentation timestamps via packet scan (no decode).");
 }

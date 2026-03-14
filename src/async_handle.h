@@ -58,6 +58,14 @@ public:
     };
     StreamView peek_stream(int file_index, int level_index) const;
 
+    // ── Frame times streaming API ─────────────────────────────────────────
+    void register_frame_times(
+        std::vector<std::vector<double>>* times,
+        std::vector<std::unique_ptr<std::atomic<int>>>* published);
+
+    // Returns frame times collected so far for a file (thread-safe snapshot).
+    std::vector<double> peek_frame_times(int file_index) const;
+
     // Keep the SharedContext alive as long as this handle exists,
     // so VirtualBlob pointers remain valid.
     void set_context_keepalive(std::shared_ptr<void> ctx);
@@ -100,6 +108,13 @@ private:
     // Prevents SharedContext (which owns the VirtualBlobs) from being
     // destroyed while this handle is alive.
     std::shared_ptr<void> context_keepalive_;
+
+    // Frame times: non-owning pointers into SharedContext's vectors.
+    // Safe because context_keepalive_ (shared_ptr<void>) prevents the
+    // SharedContext from being destroyed while this handle is alive.
+    // Cleared when get_results() releases context_keepalive_.
+    std::vector<std::vector<double>>* frame_times_ = nullptr;
+    std::vector<std::unique_ptr<std::atomic<int>>>* frame_times_published_ = nullptr;
 };
 
 }  // namespace vex

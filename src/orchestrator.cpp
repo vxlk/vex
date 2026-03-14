@@ -126,6 +126,11 @@ struct SharedContext {
     // Wall-clock start
     std::chrono::high_resolution_clock::time_point wall_start;
 
+    // Per-file frame times — only allocated when config.collect_frame_times.
+    // Each file is processed by exactly one worker thread → no mutex needed.
+    std::vector<std::vector<double>> frame_times;
+    std::vector<std::unique_ptr<std::atomic<int>>> frame_times_published;
+
     HWAccelContext* hw_ptr() { return hw_ctx.has_value() ? &hw_ctx.value() : nullptr; }
 };
 
@@ -406,6 +411,14 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
                     frames_decoded_this_file++;
                     ctx->handle->increment_keyframes(1);
 
+                    // Record frame time for streaming collection
+                    if (!ctx->frame_times.empty()) {
+                        ctx->frame_times[static_cast<size_t>(file_idx)].push_back(kf.pts_ms / 1000.0);
+                        ctx->frame_times_published[static_cast<size_t>(file_idx)]->store(
+                            static_cast<int>(ctx->frame_times[static_cast<size_t>(file_idx)].size()),
+                            std::memory_order_release);
+                    }
+
                     process_frame_levels(ki, kf.pts_ms, kf.frame_number);
 
                     av_frame_unref(decode_frame);
@@ -476,6 +489,14 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
                         frames_decoded_this_file++;
                         ctx->handle->increment_keyframes(1);
 
+                        // Record frame time for streaming collection
+                        if (!ctx->frame_times.empty()) {
+                            ctx->frame_times[static_cast<size_t>(file_idx)].push_back(pts_ms / 1000.0);
+                            ctx->frame_times_published[static_cast<size_t>(file_idx)]->store(
+                                static_cast<int>(ctx->frame_times[static_cast<size_t>(file_idx)].size()),
+                                std::memory_order_release);
+                        }
+
                         process_frame_levels(output_idx, pts_ms, seq_idx);
                         output_idx++;
                     }
@@ -520,6 +541,13 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
                     accum->metadata[static_cast<size_t>(file_idx)].clear();
                 }
             }
+            // Defensive: clear any frame times recorded by the failed HW
+            // attempt so the SW retry starts fresh.
+            if (!ctx->frame_times.empty()) {
+                ctx->frame_times[static_cast<size_t>(file_idx)].clear();
+                ctx->frame_times_published[static_cast<size_t>(file_idx)]->store(
+                    0, std::memory_order_release);
+            }
         }  // for hw_attempt
 
         if (skip_file) {
@@ -558,6 +586,13 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
                         accum->blobs[static_cast<size_t>(file_idx)].reset();
                         accum->metadata[static_cast<size_t>(file_idx)].clear();
                     }
+                }
+                // Defensive: clear frame times so the sequential fallback
+                // starts fresh.
+                if (!ctx->frame_times.empty()) {
+                    ctx->frame_times[static_cast<size_t>(file_idx)].clear();
+                    ctx->frame_times_published[static_cast<size_t>(file_idx)]->store(
+                        0, std::memory_order_release);
                 }
 
                 // Sequential fallback
@@ -664,6 +699,15 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
                             int64_t pts = fallback_dec.frame_pts_ms(decode_frame);
                             tm.keyframes_decoded++;
                             ctx->handle->increment_keyframes(1);
+
+                            // Record frame time for streaming collection
+                            if (!ctx->frame_times.empty()) {
+                                ctx->frame_times[static_cast<size_t>(file_idx)].push_back(pts / 1000.0);
+                                ctx->frame_times_published[static_cast<size_t>(file_idx)]->store(
+                                    static_cast<int>(ctx->frame_times[static_cast<size_t>(file_idx)].size()),
+                                    std::memory_order_release);
+                            }
+
                             fb_process(out, pts, seq);
                             out++;
                             av_frame_unref(decode_frame);
@@ -732,6 +776,21 @@ static void manager_func(std::shared_ptr<SharedContext> ctx, std::vector<std::th
     DecodeMetrics metrics = merge_thread_metrics(tm_vec, ctx->num_levels, wall_us, num_threads);
     metrics.hw_accel_backend = ctx->hw_backend_name;
     metrics.encoder = "libturbojpeg";
+
+    // Move frame times into FileStats.  The move leaves the SharedContext
+    // vectors empty, so reset the published counts to zero — otherwise
+    // peek_frame_times (which reads via non-owning pointers) would see
+    // a stale count and read past the end of a moved-from vector.
+    if (!ctx->frame_times.empty()) {
+        for (auto& fs : metrics.file_stats) {
+            int fi = fs.file_index;
+            if (fi >= 0 && fi < static_cast<int>(ctx->frame_times.size())) {
+                fs.frame_times = std::move(ctx->frame_times[static_cast<size_t>(fi)]);
+                ctx->frame_times_published[static_cast<size_t>(fi)]->store(
+                    0, std::memory_order_release);
+            }
+        }
+    }
 
     // Build LevelResults
     std::vector<LevelResult> results(static_cast<size_t>(ctx->num_levels));
@@ -858,6 +917,16 @@ std::shared_ptr<DecodeHandle> Orchestrator::batch_decode_async(const BatchConfig
         }
     }
 
+    // Frame times collection
+    if (config.collect_frame_times) {
+        ctx->frame_times.resize(static_cast<size_t>(num_files));
+        ctx->frame_times_published.resize(static_cast<size_t>(num_files));
+        for (int i = 0; i < num_files; ++i) {
+            ctx->frame_times_published[static_cast<size_t>(i)] =
+                std::make_unique<std::atomic<int>>(0);
+        }
+    }
+
     // Work queue
     ctx->work_queue = std::make_shared<WorkQueue>();
     ctx->work_queue->populate(num_files);
@@ -915,6 +984,12 @@ std::shared_ptr<DecodeHandle> Orchestrator::batch_decode_async(const BatchConfig
     // Keep SharedContext alive as long as the handle exists,
     // so VirtualBlob pointers from peek_stream remain valid.
     ctx->handle->set_context_keepalive(ctx);
+
+    // Register frame times for peek access
+    if (config.collect_frame_times) {
+        ctx->handle->register_frame_times(
+            &ctx->frame_times, &ctx->frame_times_published);
+    }
 
     // Per-thread metrics
     ctx->all_metrics.resize(static_cast<size_t>(num_threads));

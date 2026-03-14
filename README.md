@@ -40,6 +40,7 @@ Regenerate with `./dev.sh bench` (or `./dev.sh bench --runs 3` for best-of-3).
 - **Sprite atlas** — composite frames into grid JPEGs for timeline hover previews
 - **Threaded pipeline** — parallel file decode with configurable thread count
 - **Disk cache** — binary cache format with offset tables for random-access reads via `mmap`
+- **Frame timestamps** — extract per-frame PTS from any container without decoding, or collect timestamps as a side-effect of decode
 - **Async events** — per-frame callbacks for streaming results during decode
 - **Python bindings** — pybind11 module exposing the full pipeline to Python/numpy
 
@@ -60,6 +61,7 @@ video file → demux → decode → scale → encode → blob/atlas/disk
 | `encoder` | JPEG compression via TurboJPEG |
 | `atlas` | Sprite sheet compositing |
 | `disk_writer` | Binary cache with offset table + mmap support |
+| `frame_timer` | Per-frame PTS extraction (packet scan, no decode) |
 | `async_handle` | Per-frame event dispatch |
 | `orchestrator` | Thread pool coordination, owns the full pipeline |
 | `bindings` | pybind11 → Python `_vex_core` module |
@@ -87,6 +89,48 @@ results = vex.batch_decode(
     max_threads=8,
 )
 ```
+
+## Frame timestamps
+
+Get the presentation timestamp of every frame without decoding pixel data:
+
+```python
+ft = vex.get_frame_times("video.mp4")
+
+print(ft.strategy)      # "sample_table", "block_timestamp", "pes_timestamp", etc.
+print(ft.frame_count)   # number of frames
+print(ft.fps)           # detected frame rate
+print(ft.times)         # float64 numpy array — one PTS per frame, in seconds
+```
+
+vex reads timestamps directly from container metadata (MP4 sample tables, MKV block timecodes, PES headers, FLV tags, etc.) using a packet-only scan. No frames are decoded, so this is fast regardless of codec or resolution.
+
+Supported container strategies:
+
+| Strategy | Containers |
+|---|---|
+| `sample_table` | MP4, MOV, M4V, F4V, 3GP, 3G2 |
+| `block_timestamp` | MKV, WebM |
+| `pes_timestamp` | MPEG-TS, MPEG-PS (MPG/VOB), WTV |
+| `tag_timestamp` | FLV, ASF/WMV, RealMedia |
+| `fixed_rate` | AVI, DV, SWF |
+| `generic_pts` | NUT, IVF, OGG, MXF, GXF |
+
+Timestamps can also be collected as a side-effect of decoding, with no extra I/O:
+
+```python
+# Synchronous
+result = vex.batch_decode(["video.mp4"], keyframes_only=False, collect_frame_times=True)
+times = result.metrics.frame_times(0)  # numpy array for file 0
+
+# Async — peek at timestamps while decode is still running
+handle = vex.batch_decode_async(["video.mp4"], keyframes_only=False, collect_frame_times=True)
+while not handle.done:
+    partial = handle.peek_frame_times(0)  # growing array
+result = handle.result()
+```
+
+See `examples/10_frame_times_standalone.py` and `examples/11_frame_times_streaming.py`.
 
 ## Install
 

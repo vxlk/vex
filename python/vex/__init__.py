@@ -23,6 +23,16 @@ resolution on that axis.  When both width and height are ``NATIVE``, the
 frame is encoded directly from the decoder output with no scaling at all.
 """
 
+TIMESTAMP_STRATEGIES = {
+    0: "sample_table",
+    1: "block_timestamp",
+    2: "pes_timestamp",
+    3: "tag_timestamp",
+    4: "fixed_rate",
+    5: "generic_pts",
+    6: "linear_fallback",
+}
+
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -76,6 +86,36 @@ class LevelConfig:
     in_memory: bool = True
     cache_path: Optional[str] = None
     atlas_columns: int = 10
+
+
+@dataclass
+class FrameTimes:
+    """Per-frame presentation timestamps from a packet-only scan.
+
+    Attributes:
+        times:        float64 numpy array, display-order, in seconds.
+        frame_count:  number of frames.
+        duration_sec: video duration in seconds.
+        fps:          frames per second.
+        strategy:     timestamp extraction strategy name.
+        container:    FFmpeg demuxer name.
+        codec:        codec name.
+    """
+
+    times: np.ndarray
+    frame_count: int
+    duration_sec: float
+    fps: float
+    strategy: str
+    container: str
+    codec: str
+
+    def __repr__(self) -> str:
+        return (
+            f"FrameTimes(frames={self.frame_count}, "
+            f"duration={self.duration_sec:.3f}s, "
+            f"fps={self.fps:.2f}, strategy={self.strategy!r})"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -389,6 +429,16 @@ class DecodeMetrics:
 
         return "\n".join(lines)
 
+    def frame_times(self, file_index: int = 0) -> Optional[np.ndarray]:
+        """Return frame times for a file, or None if not collected."""
+        for fs in self.file_stats:
+            if fs.get("file_index") == file_index:
+                ft = fs.get("frame_times")
+                if ft is not None and len(ft) > 0:
+                    return ft
+                return None
+        return None
+
     def __repr__(self) -> str:
         wall_ms = self.total_wall_us / 1000
         return (
@@ -701,6 +751,7 @@ def batch_decode(
     keyframes_only: bool = False,
     frame_skip: int = 1,
     use_hw_accel: bool = True,
+    collect_frame_times: bool = False,
 ) -> BatchResult:
     """Decode video frames from one or more video files.
 
@@ -782,6 +833,7 @@ def batch_decode(
         keyframes_only,
         frame_skip,
         use_hw_accel,
+        collect_frame_times,
     )
 
     level_results = [_wrap_level_result(r) for r in raw_results]
@@ -835,6 +887,17 @@ class DecodeHandle:
         keyframes_decoded, files_completed, total_files.
         """
         return self._handle.progress
+
+    def peek_frame_times(self, file_index: int = 0) -> Optional[np.ndarray]:
+        """Snapshot of frame times collected so far for a file.
+
+        Returns a numpy float64 array of timestamps in seconds, or None
+        if frame time collection is not enabled or no times are available yet.
+        """
+        result = self._handle.peek_frame_times(file_index)
+        if result is None:
+            return None
+        return np.asarray(result, dtype=np.float64)
 
     def peek_stream(
         self, file_index: int = 0, level_index: int = 0
@@ -900,6 +963,7 @@ def batch_decode_async(
     frame_skip: int = 1,
     use_hw_accel: bool = True,
     blob_reservation: int = 0,
+    collect_frame_times: bool = False,
 ) -> DecodeHandle:
     """Start an asynchronous batch decode operation.
 
@@ -933,6 +997,7 @@ def batch_decode_async(
         frame_skip,
         use_hw_accel,
         blob_reservation,
+        collect_frame_times,
     )
 
     return DecodeHandle(native_handle)
@@ -941,6 +1006,29 @@ def batch_decode_async(
 # ---------------------------------------------------------------------------
 # Probe decoder threading
 # ---------------------------------------------------------------------------
+
+
+def get_frame_times(path: str) -> FrameTimes:
+    """Get presentation timestamps for every frame (packet scan, no decode).
+
+    Returns a :class:`FrameTimes` with a float64 numpy array of per-frame
+    timestamps in seconds (display order), plus metadata about the video.
+
+    This is independent of :func:`batch_decode` — it opens the file,
+    reads packet-level timestamps from the container, and returns
+    immediately.  No frame decoding occurs.
+    """
+    _vex_core = _load_native()
+    raw = _vex_core.get_frame_times(path)
+    return FrameTimes(
+        times=raw["times"],
+        frame_count=raw["frame_count"],
+        duration_sec=raw["duration_sec"],
+        fps=raw["fps"],
+        strategy=TIMESTAMP_STRATEGIES.get(raw["strategy"], "unknown"),
+        container=raw["container"],
+        codec=raw["codec"],
+    )
 
 
 def probe_decode_threads(path: str, decode_threads: int = 0) -> int:
@@ -1001,7 +1089,9 @@ def probe_batch_threads(
 
 __all__ = [
     "NATIVE",
+    "TIMESTAMP_STRATEGIES",
     "LevelConfig",
+    "FrameTimes",
     "BatchResult",
     "JpegStreamResult",
     "SpriteAtlasResult",
@@ -1011,6 +1101,7 @@ __all__ = [
     "DecodeHandle",
     "batch_decode",
     "batch_decode_async",
+    "get_frame_times",
     "probe_decode_threads",
     "probe_batch_threads",
 ]

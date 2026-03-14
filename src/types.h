@@ -22,6 +22,26 @@ enum class IndexStrategy : int {
     SKIPPED = 4,
 };
 
+enum class TimestampStrategy : int {
+    SAMPLE_TABLE = 0,
+    BLOCK_TIMESTAMP = 1,
+    PES_TIMESTAMP = 2,
+    TAG_TIMESTAMP = 3,
+    FIXED_RATE = 4,
+    GENERIC_PTS = 5,
+    LINEAR_FALLBACK = 6,
+};
+
+struct FrameTimesResult {
+    std::vector<double> times_sec;  // display-order, one per frame
+    int frame_count = 0;
+    double duration_sec = 0.0;
+    double fps = 0.0;
+    TimestampStrategy strategy = TimestampStrategy::LINEAR_FALLBACK;
+    std::string container;
+    std::string codec;
+};
+
 enum class OutputFormat {
     JPEG_STREAM,
     SPRITE_ATLAS,
@@ -49,6 +69,7 @@ struct BatchConfig {
     size_t blob_reservation = 0;  // VirtualBlob reservation per file/level.
                                    // 0 = default (256 MB).  Only affects
                                    // async in-memory JPEG_STREAM output.
+    bool collect_frame_times = false;  // collect per-frame PTS during decode
 };
 
 // ── Keyframe index ─────────────────────────────────────────────────────────
@@ -104,6 +125,7 @@ struct FileStats {
     int source_width = 0;
     int source_height = 0;
     bool hw_accel_used = false;  // true if GPU decode was used
+    std::vector<double> frame_times;  // empty unless collect_frame_times was set
 };
 
 struct DecodeMetrics {

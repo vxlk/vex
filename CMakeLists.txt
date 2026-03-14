@@ -164,6 +164,7 @@ set(VEX_SOURCES
     src/async_handle.cpp
     src/virtual_blob.cpp
     src/orchestrator.cpp
+    src/frame_timer.cpp
 )
 
 # ── Build the Python extension module ───────────────────────────────────────

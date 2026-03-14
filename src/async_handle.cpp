@@ -128,4 +128,29 @@ void DecodeHandle::set_context_keepalive(std::shared_ptr<void> ctx) {
     context_keepalive_ = std::move(ctx);
 }
 
+// ── Frame times streaming API ───────────────────────────────────────────────
+
+void DecodeHandle::register_frame_times(
+    std::vector<std::vector<double>>* times,
+    std::vector<std::unique_ptr<std::atomic<int>>>* published) {
+    frame_times_ = times;
+    frame_times_published_ = published;
+}
+
+std::vector<double> DecodeHandle::peek_frame_times(int file_index) const {
+    if (!frame_times_ || !frame_times_published_)
+        return {};
+    if (file_index < 0 ||
+        file_index >= static_cast<int>(frame_times_->size()))
+        return {};
+
+    int count = (*frame_times_published_)[static_cast<size_t>(file_index)]
+                    ->load(std::memory_order_acquire);
+    if (count <= 0)
+        return {};
+
+    auto& vec = (*frame_times_)[static_cast<size_t>(file_index)];
+    return std::vector<double>(vec.begin(), vec.begin() + count);
+}
+
 }  // namespace vex
