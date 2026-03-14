@@ -8,7 +8,7 @@ vex links directly against FFmpeg's `libavcodec`/`libavformat`/`libswscale` and 
 
 ### Batched throughput
 
-vex batch-decodes all frames from 42 container formats in a single `batch_decode` call. The dashed line is the **amortized average** (total wall time / N files) — not per-format timing. FFmpeg bars show actual per-file wall time (one subprocess each).
+vex batch-decodes all frames from 42 container formats in a single `batch_decode` call. FFmpeg runs the same files concurrently via `ThreadPoolExecutor`. Both bars show total wall time. Benchmarked on CPython 3.13 with the GIL enabled. Free-threaded Python would improve the FFmpeg side — `subprocess.run` releases the GIL during I/O, but the Python-level orchestration (pipe reads, `bytes` concatenation, JPEG marker scanning in `_split_jpegs`) still serializes across 42 threads. Removing the GIL would let those stages overlap, likely shaving 10–20% off FFmpeg's wall time. vex would be unaffected since its entire pipeline runs in C++ with the GIL released.
 
 **Thumbnail** — 192x192 q85:
 
