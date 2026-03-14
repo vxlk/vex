@@ -22,9 +22,11 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -203,23 +205,28 @@ def run_batch_benchmark(
             stream = result.jpeg_stream()
             vex_frames = sum(len(stream.offsets[i]) for i in range(n_files))
 
-        # FFmpeg: one subprocess per file
-        ff_per_file: list[tuple[float, int]] = []
-        ff_total = 0.0
-        for _, path in fixtures:
-            ft_i, fc_i = ffmpeg_pipe_decode(path, width, height, quality)
-            ff_per_file.append((ft_i, fc_i))
-            ff_total += ft_i
-        if ff_total < best_ff:
-            best_ff = ff_total
+        # FFmpeg: concurrent subprocesses (matches vex's internal threading)
+        n_workers = min(os.cpu_count() or 4, n_files)
+        ff_t0 = time.perf_counter()
+        with ThreadPoolExecutor(max_workers=n_workers) as pool:
+            futures = [
+                pool.submit(ffmpeg_pipe_decode, path, width, height, quality)
+                for _, path in fixtures
+            ]
+            ff_per_file = [f.result() for f in futures]
+        ff_wall = time.perf_counter() - ff_t0
+        if ff_wall < best_ff:
+            best_ff = ff_wall
             best_ff_per_file = ff_per_file
 
         if runs > 1:
-            print(f"  run {run_i + 1}/{runs}:  vex={vt:.3f}s  ffmpeg={ff_total:.3f}s")
+            print(f"  run {run_i + 1}/{runs}:  vex={vt:.3f}s  ffmpeg={ff_wall:.3f}s")
 
     speedup = best_ff / best_vex if best_vex > 0 else float("inf")
     vex_amortized = best_vex / n_files
     res_label = f"{width}x{height}" if width is not None else "native"
+
+    ffmpeg_amortized = best_ff / n_files
 
     aggregate = {
         "vex_time": best_vex,
@@ -228,23 +235,12 @@ def run_batch_benchmark(
         "speedup": speedup,
         "n_files": n_files,
         "vex_amortized": vex_amortized,
+        "ffmpeg_amortized": ffmpeg_amortized,
         "res_label": res_label,
         "quality": quality,
     }
 
-    rows = []
-    for i, (name, _) in enumerate(fixtures):
-        ff_time_i, ff_frames_i = best_ff_per_file[i]
-        rows.append(
-            {
-                "name": name,
-                "ffmpeg_time": ff_time_i,
-                "ffmpeg_frames": ff_frames_i,
-                "vex_amortized": vex_amortized,
-            }
-        )
-
-    return aggregate, rows
+    return aggregate
 
 
 # ---------------------------------------------------------------------------
@@ -339,7 +335,7 @@ def run_perfile_benchmark(
 # ---------------------------------------------------------------------------
 
 
-def print_batch_summary(aggregate: dict, rows: list[dict], label: str):
+def print_batch_summary(aggregate: dict, label: str):
     print(f"\n{'=' * 64}")
     print(f"  {label}  [BATCHED]")
     print(
@@ -351,24 +347,16 @@ def print_batch_summary(aggregate: dict, rows: list[dict], label: str):
         f"    amortized: {aggregate['vex_amortized'] * 1000:>8.1f} ms  "
         f"(= {aggregate['vex_time'] * 1000:.0f} / {aggregate['n_files']})"
     )
-    print(f"  FFmpeg image2pipe (sequential, {aggregate['n_files']} subprocesses)")
+    print(
+        f"  FFmpeg image2pipe (threaded, {aggregate['n_files']} subprocesses)"
+    )
     print(f"    total:     {aggregate['ffmpeg_time'] * 1000:>8.1f} ms")
     print(
-        f"    per file:  "
-        f"{aggregate['ffmpeg_time'] / aggregate['n_files'] * 1000:>8.1f} ms"
+        f"    amortized: {aggregate['ffmpeg_amortized'] * 1000:>8.1f} ms  "
+        f"(= {aggregate['ffmpeg_time'] * 1000:.0f} / {aggregate['n_files']})"
     )
     print(f"  Speedup: {aggregate['speedup']:.1f}x")
-    print(f"{'=' * 64}\n")
-
-    print(f"  {'Format':<28} {'ffmpeg':>9} {'vex (amort*)':>12}")
-    print(f"  {'-' * 28} {'-' * 9} {'-' * 12}")
-    for r in sorted(rows, key=lambda r: -r["ffmpeg_time"]):
-        print(
-            f"  {r['name']:<28} "
-            f"{r['ffmpeg_time'] * 1000:>8.1f}ms "
-            f"{r['vex_amortized'] * 1000:>10.1f}ms*"
-        )
-    print("\n  * amortized = total batch wall time / N files (not per-format)")
+    print(f"{'=' * 64}")
 
 
 def print_perfile_summary(aggregate: dict, rows: list[dict], label: str):
@@ -421,71 +409,58 @@ def _init_matplotlib():
         sys.exit(1)
 
 
-def generate_batch_chart(rows: list[dict], aggregate: dict, out_path: Path):
-    """Batched benchmark chart — FFmpeg per-file bars + vex amortized line."""
+def generate_batch_chart(aggregate: dict, out_path: Path):
+    """Batched benchmark chart — total wall time comparison."""
     plt = _init_matplotlib()
+    import numpy as np
 
     res = aggregate["res_label"]
     q = aggregate["quality"]
+    spd = aggregate["speedup"]
+    n_files = aggregate["n_files"]
+    total_frames = aggregate["total_frames"]
 
-    rows = sorted(rows, key=lambda r: r["ffmpeg_time"])
-    names = [r["name"] for r in rows]
-    ff_ms = [r["ffmpeg_time"] * 1000 for r in rows]
-    vex_ms = aggregate["vex_amortized"] * 1000
+    vex_ms = aggregate["vex_time"] * 1000
+    ff_ms = aggregate["ffmpeg_time"] * 1000
 
-    n = len(names)
-    fig_h = max(6, n * 0.32 + 2.5)
-    fig, ax = plt.subplots(figsize=(10, fig_h))
+    fig, ax = plt.subplots(figsize=(8, 3.5))
 
-    y_pos = list(range(n))
-    bar_h = 0.6
+    labels = ["vex (single call)", f"FFmpeg (threaded, {n_files} subprocesses)"]
+    times = [vex_ms, ff_ms]
+    colors = ["#2ecc71", "#e74c3c"]
 
-    ax.barh(
-        y_pos,
-        ff_ms,
-        bar_h,
-        color="#e74c3c",
-        alpha=0.85,
-        label="FFmpeg subprocess (per file)",
-        zorder=2,
-    )
+    y_pos = np.arange(len(labels))
+    bar_h = 0.5
 
-    ax.axvline(
-        vex_ms,
-        color="#2ecc71",
-        linewidth=2.5,
-        linestyle="--",
-        label=f"vex batched avg ({vex_ms:.1f} ms = "
-        f"{aggregate['vex_time'] * 1000:.0f}ms / {aggregate['n_files']} files)",
-        zorder=3,
-    )
+    bars = ax.barh(y_pos, times, bar_h, color=colors, alpha=0.85, zorder=2)
 
-    ax.axvspan(0, vex_ms, alpha=0.08, color="#2ecc71", zorder=1)
+    for bar, t in zip(bars, times):
+        ax.text(
+            bar.get_width() + max(times) * 0.01,
+            bar.get_y() + bar.get_height() / 2,
+            f"{t:.0f} ms",
+            va="center",
+            fontsize=10,
+            fontweight="bold",
+        )
 
     ax.set_yticks(y_pos)
-    ax.set_yticklabels(names, fontsize=7.5, family="monospace")
-    ax.set_xlabel("Time per file (ms)", fontsize=10)
+    ax.set_yticklabels(labels, fontsize=10)
+    ax.set_xlabel("Wall time (ms)", fontsize=10)
 
-    spd = aggregate["speedup"]
-    total_frames = aggregate["total_frames"]
-    n_files = aggregate["n_files"]
     ax.set_title(
-        f"vex (batched) vs FFmpeg  —  "
-        f"{aggregate['vex_time'] * 1000:.0f} ms vs "
-        f"{aggregate['ffmpeg_time'] * 1000:.0f} ms  "
+        f"vex vs FFmpeg batched  —  "
+        f"{vex_ms:.0f} ms vs {ff_ms:.0f} ms  "
         f"({spd:.1f}x faster)\n"
-        f"{n_files} formats, {total_frames} total frames, "
-        f"{res} q{q}, sequential decode\n"
-        f"vex line = total batch wall time / N files (not per-format)",
-        fontsize=9.5,
+        f"{n_files} formats, {total_frames} total frames, {res} q{q}",
+        fontsize=10,
         pad=14,
     )
-    ax.legend(loc="lower right", fontsize=8.5, framealpha=0.9)
 
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.grid(axis="x", alpha=0.25, zorder=0)
-    ax.set_xlim(left=0)
+    ax.set_xlim(left=0, right=max(times) * 1.15)
 
     plt.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -616,13 +591,13 @@ def main():
             f"{args.width}x{args.height} q{args.quality} "
             f"({'best of ' + str(args.runs) if args.runs > 1 else '1 run'})...\n"
         )
-        agg, rows = run_batch_benchmark(
+        agg = run_batch_benchmark(
             fixtures, args.width, args.height, args.quality, args.runs
         )
         print_batch_summary(
-            agg, rows, f"Thumbnail ({args.width}x{args.height} q{args.quality})"
+            agg, f"Thumbnail ({args.width}x{args.height} q{args.quality})"
         )
-        generate_batch_chart(rows, agg, ASSETS_DIR / "benchmark_batch_thumb.png")
+        generate_batch_chart(agg, ASSETS_DIR / "benchmark_batch_thumb.png")
 
     # -- Section 2: Batched native --------------------------------------------
     if run_all or args.section == "batch-native":
@@ -631,9 +606,9 @@ def main():
             f"[Batched Native] {len(fixtures)} formats at native resolution q100 "
             f"({'best of ' + str(args.runs) if args.runs > 1 else '1 run'})...\n"
         )
-        agg, rows = run_batch_benchmark(fixtures, None, None, 100, args.runs)
-        print_batch_summary(agg, rows, "Native resolution (q100)")
-        generate_batch_chart(rows, agg, ASSETS_DIR / "benchmark_batch_native.png")
+        agg = run_batch_benchmark(fixtures, None, None, 100, args.runs)
+        print_batch_summary(agg, "Native resolution (q100)")
+        generate_batch_chart(agg, ASSETS_DIR / "benchmark_batch_native.png")
 
     # -- Section 3: Per-file thumbnail ----------------------------------------
     if run_all or args.section == "perfile-thumb":
