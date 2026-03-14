@@ -60,7 +60,13 @@ public:
     int source_height() const { return height_; }
     std::string codec_name() const { return codec_name_; }
     int64_t file_size() const { return file_size_; }
-    int decode_thread_count() const { return codec_ctx_ ? codec_ctx_->thread_count : 0; }
+    // Returns the number of FFmpeg-managed decode threads, or 0 when the
+    // codec manages its own thread pool (e.g. libdav1d for AV1).
+    int decode_thread_count() const {
+        if (!codec_ctx_) return 0;
+        if (codec_ctx_->active_thread_type == 0) return 0;
+        return codec_ctx_->thread_count;
+    }
 
     // True if the demuxer is a video container (not a still-image pipe).
     // Image formats use demuxers like "png_pipe", "image2", etc.

@@ -65,6 +65,7 @@ def main():
         keyframes_only=keyframes_only,
         frame_skip=frame_skip,
         collect_frame_times=True,
+        max_threads=num_threads,
     )
 
     # --- launch ffplay ------------------------------------------------------
