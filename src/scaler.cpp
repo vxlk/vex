@@ -26,10 +26,24 @@ FrameScaler::FrameScaler(int src_w, int src_h, int src_fmt, int dst_w, int dst_h
     }
 }
 
+FrameScaler::FrameScaler(int src_w, int src_h, int src_fmt, int dst_w, int dst_h,
+                          SwsContext* borrowed_ctx)
+    : identity_(src_w == dst_w && src_h == dst_h &&
+                (src_fmt == AV_PIX_FMT_YUV420P || src_fmt == AV_PIX_FMT_YUVJ420P)),
+      owns_ctx_(false),
+      src_w_(src_w),
+      src_h_(src_h),
+      dst_w_(dst_w),
+      dst_h_(dst_h) {
+    if (!identity_) {
+        sws_ctx_ = borrowed_ctx;
+    }
+}
+
 // ── Destructor ──────────────────────────────────────────────────────────────
 
 FrameScaler::~FrameScaler() {
-    if (sws_ctx_) {
+    if (sws_ctx_ && owns_ctx_) {
         sws_freeContext(sws_ctx_);
     }
 }

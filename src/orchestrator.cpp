@@ -9,15 +9,16 @@
 #include "keyframe_index_scanner.h"
 #include "virtual_blob.h"
 #include "thread_pool.h"
+#include "cache.h"
 
 #include <thread>
 #include <mutex>
 #include <deque>
 #include <condition_variable>
 #include <algorithm>
+#include <numeric>
 #include <chrono>
 #include <memory>
-#include <unordered_map>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -26,11 +27,6 @@ extern "C" {
 }
 
 namespace vex {
-
-// ── HW compat cache (process-global, survives across batch calls) ───────────
-
-static std::mutex g_hw_cache_mutex;
-static std::unordered_map<int, bool> g_hw_compat_cache;
 
 // ── Shared work queue ───────────────────────────────────────────────────────
 
@@ -87,24 +83,6 @@ struct MemoryLevelAccum {
     std::vector<std::vector<std::array<int64_t, 3>>> metadata;  // per-file metadata
 };
 
-// ── YUV buffer for per-thread scaling ───────────────────────────────────────
-
-struct YUVBuffer {
-    std::vector<uint8_t> y, u, v;
-    int width = 0;
-    int height = 0;
-
-    void ensure(int w, int h) {
-        if (w == width && h == height)
-            return;
-        width = w;
-        height = h;
-        y.resize(static_cast<size_t>(w) * h);
-        u.resize(static_cast<size_t>(w / 2) * (h / 2));
-        v.resize(static_cast<size_t>(w / 2) * (h / 2));
-    }
-};
-
 // ── Shared context for all threads ──────────────────────────────────────────
 
 struct SharedContext {
@@ -147,12 +125,17 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
     ThreadMetrics& tm = *ctx->all_metrics[static_cast<size_t>(thread_id)];
     tm.init_levels(ctx->num_levels);
 
-    // Per-thread resources
-    JpegEncoder encoder;
-    AVFrame* decode_frame = av_frame_alloc();
-    std::vector<YUVBuffer> scale_bufs(static_cast<size_t>(ctx->num_levels));
+    // Per-thread resources (consolidated in ThreadCache)
+    ThreadCache tc;
+    tc.init_levels(ctx->num_levels);
+    auto& encoder = tc.encoder;
+    AVFrame* decode_frame = tc.decode_frame;
+    auto& scale_bufs = tc.scale_bufs;
 
     HWAccelContext* hw_ptr = ctx->hw_ptr();
+
+    // Codec context reuse: keep previous decoder alive across files
+    std::unique_ptr<FileDecoder> prev_decoder;
 
     // Worker loop: dequeue files one at a time
     while (true) {
@@ -173,7 +156,7 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
             int probe_codec_id = 0;
             int probe_w = 0, probe_h = 0;
 
-            // Get codec_id + resolution from probe_info or file probe
+            // Get codec_id + resolution from probe_info or lightweight probe
             auto fi = static_cast<size_t>(file_idx);
             if (fi < ctx->config.probe_info.size() &&
                 ctx->config.probe_info[fi].codec_id != 0) {
@@ -182,26 +165,27 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
                 probe_w = pi.width;
                 probe_h = pi.height;
             } else {
-                FileDecoder file_probe(path, nullptr);
-                if (file_probe.is_valid()) {
-                    probe_codec_id = static_cast<int>(file_probe.codec_id());
-                    probe_w = file_probe.source_width();
-                    probe_h = file_probe.source_height();
+                auto lp = light_probe(path);
+                if (lp.valid) {
+                    probe_codec_id = static_cast<int>(lp.codec_id);
+                    probe_w = lp.width;
+                    probe_h = lp.height;
                 }
             }
 
             if (probe_codec_id != 0) {
                 // Check process-global cache first
+                auto& pcache = ProcessCache::instance();
                 bool codec_ok;
                 {
-                    std::lock_guard<std::mutex> lock(g_hw_cache_mutex);
-                    auto it = g_hw_compat_cache.find(probe_codec_id);
-                    if (it != g_hw_compat_cache.end()) {
+                    std::lock_guard<std::mutex> lock(pcache.hw_compat_mutex);
+                    auto it = pcache.hw_compat.find(probe_codec_id);
+                    if (it != pcache.hw_compat.end()) {
                         codec_ok = it->second;
                     } else {
                         codec_ok = can_hw_decode(hw_ptr->device_type,
                                                   static_cast<AVCodecID>(probe_codec_id));
-                        g_hw_compat_cache[probe_codec_id] = codec_ok;
+                        pcache.hw_compat[probe_codec_id] = codec_ok;
                     }
                 }
                 int src_pixels = probe_w * probe_h;
@@ -218,7 +202,23 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
             if (hw_attempt == 1 && !hw_compatible)
                 break;
 
-            FileDecoder decoder_file(path, use_hw, ctx->decode_threads);
+            // Attempt codec context reuse via flush
+            bool reused = false;
+            if (prev_decoder && prev_decoder->is_valid()) {
+                reused = prev_decoder->reopen_file(path, use_hw, ctx->decode_threads);
+            }
+
+            FileDecoder* decoder_ptr;
+            std::unique_ptr<FileDecoder> new_decoder;
+            if (reused) {
+                decoder_ptr = prev_decoder.get();
+            } else {
+                prev_decoder.reset();
+                new_decoder = std::make_unique<FileDecoder>(path, use_hw, ctx->decode_threads);
+                decoder_ptr = new_decoder.get();
+            }
+            FileDecoder& decoder_file = *decoder_ptr;
+
             if (!decoder_file.is_valid()) {
                 if (hw_attempt == 0 && hw_ptr)
                     continue;  // retry with software
@@ -266,8 +266,10 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
                     // Create/reuse scaler for this level (src format from decoded frame
                     // so the scaler combines pixel format conversion + downscale in one pass)
                     if (!scalers[static_cast<size_t>(l)]) {
-                        scalers[static_cast<size_t>(l)] = std::make_unique<FrameScaler>(
+                        SwsContext* cached = tc.get_sws(
                             src_w, src_h, decode_frame->format, lc.width, lc.height);
+                        scalers[static_cast<size_t>(l)] = std::make_unique<FrameScaler>(
+                            src_w, src_h, decode_frame->format, lc.width, lc.height, cached);
                     }
 
                     auto& scaler = *scalers[static_cast<size_t>(l)];
@@ -574,8 +576,13 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
             }
 
             // If frames were produced, we're done with this file
-            if (frames_decoded_this_file > 0)
+            if (frames_decoded_this_file > 0) {
+                // Save decoder for potential reuse on next file
+                if (new_decoder) {
+                    prev_decoder = std::move(new_decoder);
+                }
                 break;
+            }
 
             // If no HW was used, no point retrying
             if (!use_hw)
@@ -694,8 +701,10 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
                                                    : "sprite_atlas";
 
                             if (!fb_scalers[static_cast<size_t>(l)]) {
-                                fb_scalers[static_cast<size_t>(l)] = std::make_unique<FrameScaler>(
+                                SwsContext* cached = tc.get_sws(
                                     fb_src_w, fb_src_h, decode_frame->format, lc.width, lc.height);
+                                fb_scalers[static_cast<size_t>(l)] = std::make_unique<FrameScaler>(
+                                    fb_src_w, fb_src_h, decode_frame->format, lc.width, lc.height, cached);
                             }
                             auto& scaler = *fb_scalers[static_cast<size_t>(l)];
 
@@ -805,7 +814,9 @@ static void worker_func(std::shared_ptr<SharedContext> ctx, int thread_id) {
         ctx->handle->increment_files(1);
     }  // while (dequeue)
 
-    av_frame_free(&decode_frame);
+    // ThreadCache destructor frees decode_frame, sws_pool, etc.
+    // Release prev_decoder before ThreadCache goes out of scope.
+    prev_decoder.reset();
 }
 
 // ── Manager thread function (joins workers, finalizes results) ──────────────
@@ -989,9 +1000,27 @@ std::shared_ptr<DecodeHandle> Orchestrator::batch_decode_async(const BatchConfig
         }
     }
 
-    // Work queue
+    // Work queue — sort by (codec_id, width, height) for codec context reuse
+    // when probe_info is available
     ctx->work_queue = std::make_shared<WorkQueue>();
-    ctx->work_queue->populate(num_files);
+    if (!config.probe_info.empty() &&
+        static_cast<int>(config.probe_info.size()) == num_files) {
+        std::vector<int> indices(static_cast<size_t>(num_files));
+        std::iota(indices.begin(), indices.end(), 0);
+        std::sort(indices.begin(), indices.end(), [&](int a, int b) {
+            const auto& pa = config.probe_info[static_cast<size_t>(a)];
+            const auto& pb = config.probe_info[static_cast<size_t>(b)];
+            if (pa.codec_id != pb.codec_id) return pa.codec_id < pb.codec_id;
+            if (pa.width != pb.width) return pa.width < pb.width;
+            return pa.height < pb.height;
+        });
+        {
+            std::lock_guard<std::mutex> lock(ctx->work_queue->mutex);
+            for (int idx : indices) ctx->work_queue->file_indices.push_back(idx);
+        }
+    } else {
+        ctx->work_queue->populate(num_files);
+    }
 
     // Per-level accumulators
     ctx->mem_accums.resize(static_cast<size_t>(num_levels));

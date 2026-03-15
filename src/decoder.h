@@ -13,6 +13,25 @@ extern "C" {
 
 namespace vex {
 
+// Lightweight file probe that reads codec_id, width, and height from the
+// container's stream parameters WITHOUT allocating or opening a codec context.
+//
+// A full FileDecoder constructor does: avformat_open_input → avformat_find_stream_info
+// → avcodec_alloc_context3 → avcodec_parameters_to_context → avcodec_open2
+// (which spins up FFmpeg's internal thread pool for slice/frame threading).
+//
+// light_probe skips the last three steps — it only needs the demuxer to read
+// codecpar from the stream header.  This makes it ~10x cheaper than a full
+// FileDecoder when the only goal is reading codec_id + resolution for the
+// HW compatibility check in the orchestrator's worker loop.
+struct LightProbe {
+    AVCodecID codec_id = AV_CODEC_ID_NONE;
+    int width = 0;
+    int height = 0;
+    bool valid = false;
+};
+LightProbe light_probe(const std::string& path);
+
 class FileDecoder {
 public:
     // Opens the file and initialises the video decoder.
@@ -52,6 +71,26 @@ public:
 
     // Convert a decoded frame's PTS to milliseconds.
     int64_t frame_pts_ms(const AVFrame* frame) const;
+
+    // ── Codec context reuse ───────────────────────────────────────────────
+
+    // Reopen the decoder with a new file, reusing the existing codec context
+    // via avcodec_flush_buffers() instead of destroying and recreating it.
+    //
+    // Why this matters: avcodec_open2() spins up FFmpeg's internal thread
+    // pool (for slice/frame threading), and avcodec_free_context() tears it
+    // down.  For a 100-file batch with decode_threads=4, that's 99 full
+    // thread pool create/destroy cycles saved per worker.
+    //
+    // Returns false if the new file's parameters (codec_id, width, height,
+    // pixel format) don't match the current context, or if the codec isn't
+    // on the flush-reuse safety whitelist.  On false, the caller must
+    // destroy this decoder and create a fresh one.
+    //
+    // Safety constraints — see flush_reuse_safe() and update_extradata()
+    // in decoder.cpp for the full rationale on which codecs are safe to
+    // flush-reuse and what state must be updated between files.
+    bool reopen_file(const std::string& new_path, HWAccelContext* hw, int decode_threads);
 
     // ── Accessors ──────────────────────────────────────────────────────────
 
