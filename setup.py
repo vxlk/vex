@@ -33,6 +33,7 @@ setup(
         ],
         "dev": [
             "ruff==0.15.5",
+            "pyinstaller>=6.0",
         ],
     },
     package_data={

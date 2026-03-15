@@ -204,6 +204,45 @@ class TestPyInstallerHook:
             if had_meipass:
                 sys._MEIPASS = old
 
+    def test_frozen_bundle_decodes_video(self):
+        """Build a real PyInstaller bundle and verify vex can decode inside it."""
+        try:
+            import PyInstaller  # noqa: F401
+        except ImportError:
+            pytest.skip("PyInstaller not installed")
+
+        fixture = PROJECT_ROOT / "fixtures" / "formats" / "h264_mp4.mp4"
+        if not fixture.is_file():
+            pytest.skip("test fixtures not generated")
+
+        import subprocess
+        import tempfile
+
+        example = PROJECT_ROOT / "examples" / "12_pyinstaller.py"
+        assert example.is_file(), "12_pyinstaller.py example not found"
+
+        result = subprocess.run(
+            [sys.executable, str(example), str(fixture)],
+            capture_output=True, text=True, timeout=120,
+        )
+        assert result.returncode == 0, (
+            f"PyInstaller example failed (rc={result.returncode}):\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+        # The frozen app prints "OK frames=N fps=M" — parse and verify
+        # that at least one frame was actually decoded.
+        import re
+
+        match = re.search(r"frames=(\d+)", result.stdout)
+        assert match is not None, (
+            f"Could not find 'frames=N' in output: {result.stdout}"
+        )
+        frames = int(match.group(1))
+        assert frames > 0, (
+            f"Frozen bundle decoded 0 frames — vex is broken inside "
+            f"PyInstaller: {result.stdout}"
+        )
+
 
 class TestOutputFormatValidation:
     """Tests for output format validation."""
