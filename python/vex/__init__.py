@@ -604,15 +604,23 @@ class CachedLevel:
 # ---------------------------------------------------------------------------
 
 
+_dll_dirs_added = False
+
+
 def _load_native():
     """Import the C++ _vex_core extension module.
 
     Raises ImportError with a helpful message if the module is not built.
     """
+    global _dll_dirs_added
+
     # On Windows, add the package directory to the DLL search path so that
     # FFmpeg and TurboJPEG DLLs sitting next to _vex_core.pyd can be found.
-    _pkg_dir = os.path.dirname(os.path.abspath(__file__))
-    if hasattr(os, "add_dll_directory"):
+    # Guard with a flag so we only call AddDllDirectory once per process —
+    # repeated calls accumulate entries and can exhaust the DLL search path
+    # limit on Windows 10 (WinError 206) during long test runs.
+    if not _dll_dirs_added and hasattr(os, "add_dll_directory"):
+        _pkg_dir = os.path.dirname(os.path.abspath(__file__))
         os.add_dll_directory(_pkg_dir)
 
         # When running inside a PyInstaller frozen bundle, DLLs are
@@ -620,6 +628,8 @@ def _load_native():
         _meipass = getattr(sys, "_MEIPASS", None)
         if _meipass:
             os.add_dll_directory(_meipass)
+
+        _dll_dirs_added = True
 
     try:
         from . import _vex_core

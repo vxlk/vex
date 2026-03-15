@@ -142,14 +142,21 @@ class TestPyInstallerHook:
                 return original(path)
             return mock.MagicMock()
 
+        import vex as _vex_mod
+
         with mock.patch.object(os, "add_dll_directory", side_effect=spy):
             with mock.patch.object(sys, "_MEIPASS", fake_meipass, create=True):
+                # Reset the once-per-process guard so add_dll_directory is called
+                old_flag = _vex_mod._dll_dirs_added
+                _vex_mod._dll_dirs_added = False
                 try:
                     from vex import _load_native
 
                     _load_native()
                 except ImportError:
                     pass  # expected — _vex_core not built
+                finally:
+                    _vex_mod._dll_dirs_added = old_flag
 
         assert fake_meipass in added_dirs, (
             f"_MEIPASS not added as DLL directory; got: {added_dirs}"
@@ -175,14 +182,21 @@ class TestPyInstallerHook:
                 return original(path)
             return mock.MagicMock()
 
+        import vex as _vex_mod
+
         try:
             with mock.patch.object(os, "add_dll_directory", side_effect=spy):
+                # Reset the once-per-process guard so add_dll_directory is called
+                old_flag = _vex_mod._dll_dirs_added
+                _vex_mod._dll_dirs_added = False
                 try:
                     from vex import _load_native
 
                     _load_native()
                 except ImportError:
                     pass
+                finally:
+                    _vex_mod._dll_dirs_added = old_flag
 
             # Only the package directory should have been added
             assert len(added_dirs) == 1
