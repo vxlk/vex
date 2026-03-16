@@ -27,7 +27,7 @@ FrameScaler::FrameScaler(int src_w, int src_h, int src_fmt, int dst_w, int dst_h
 }
 
 FrameScaler::FrameScaler(int src_w, int src_h, int src_fmt, int dst_w, int dst_h,
-                          SwsContext* borrowed_ctx)
+                         SwsContext* borrowed_ctx)
     : identity_(src_w == dst_w && src_h == dst_h &&
                 (src_fmt == AV_PIX_FMT_YUV420P || src_fmt == AV_PIX_FMT_YUVJ420P)),
       owns_ctx_(false),

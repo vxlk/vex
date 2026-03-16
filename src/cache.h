@@ -119,8 +119,8 @@ struct ThreadCache {
     struct SwsKey {
         int src_w, src_h, src_fmt, dst_w, dst_h;
         bool operator==(const SwsKey& o) const {
-            return src_w == o.src_w && src_h == o.src_h && src_fmt == o.src_fmt
-                && dst_w == o.dst_w && dst_h == o.dst_h;
+            return src_w == o.src_w && src_h == o.src_h && src_fmt == o.src_fmt &&
+                   dst_w == o.dst_w && dst_h == o.dst_h;
         }
     };
     struct SwsKeyHash {
@@ -148,31 +148,29 @@ struct ThreadCache {
     SwsContext* get_sws(int src_w, int src_h, int src_fmt, int dst_w, int dst_h) {
         SwsKey key{src_w, src_h, src_fmt, dst_w, dst_h};
         auto it = sws_pool.find(key);
-        if (it != sws_pool.end()) return it->second;
-        SwsContext* ctx = sws_getContext(
-            src_w, src_h, static_cast<AVPixelFormat>(src_fmt),
-            dst_w, dst_h, AV_PIX_FMT_YUV420P,
-            SWS_BILINEAR, nullptr, nullptr, nullptr);
-        if (ctx) sws_pool[key] = ctx;
+        if (it != sws_pool.end())
+            return it->second;
+        SwsContext* ctx =
+            sws_getContext(src_w, src_h, static_cast<AVPixelFormat>(src_fmt), dst_w, dst_h,
+                           AV_PIX_FMT_YUV420P, SWS_BILINEAR, nullptr, nullptr, nullptr);
+        if (ctx)
+            sws_pool[key] = ctx;
         return ctx;
     }
 
     // --- Lifecycle ---
 
-    ThreadCache() {
-        decode_frame = av_frame_alloc();
-    }
+    ThreadCache() { decode_frame = av_frame_alloc(); }
 
     ~ThreadCache() {
-        if (decode_frame) av_frame_free(&decode_frame);
+        if (decode_frame)
+            av_frame_free(&decode_frame);
         for (auto& [key, ctx] : sws_pool) {
             sws_freeContext(ctx);
         }
     }
 
-    void init_levels(int num_levels) {
-        scale_bufs.resize(static_cast<size_t>(num_levels));
-    }
+    void init_levels(int num_levels) { scale_bufs.resize(static_cast<size_t>(num_levels)); }
 
     // Non-copyable (SwsContext* and AVFrame* have no copy semantics)
     ThreadCache(const ThreadCache&) = delete;

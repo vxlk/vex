@@ -50,7 +50,7 @@ struct LevelConfig {
 };
 
 struct FileProbeInfo {
-    int codec_id = 0;   // 0 = unknown, fallback to file probe
+    int codec_id = 0;  // 0 = unknown, fallback to file probe
     int width = 0;
     int height = 0;
 };
@@ -60,12 +60,12 @@ struct BatchConfig {
     std::vector<LevelConfig> levels;
     int max_threads = 0;  // 0 = auto (use hardware concurrency)
     bool keyframes_only = false;
-    int frame_skip = 1;                // ignored if keyframes_only=true
-    bool use_hw_accel = true;          // false → skip GPU decode, use software only
-    size_t blob_reservation = 0;       // VirtualBlob reservation per file/level.
-                                       // 0 = default (256 MB).  Only affects
-                                       // async in-memory JPEG_STREAM output.
-    bool collect_frame_times = false;  // collect per-frame PTS during decode
+    int frame_skip = 1;                     // ignored if keyframes_only=true
+    bool use_hw_accel = true;               // false → skip GPU decode, use software only
+    size_t blob_reservation = 0;            // VirtualBlob reservation per file/level.
+                                            // 0 = default (256 MB).  Only affects
+                                            // async in-memory JPEG_STREAM output.
+    bool collect_frame_times = false;       // collect per-frame PTS during decode
     std::vector<FileProbeInfo> probe_info;  // optional, one per path — skips HW compat probe
 };
 
@@ -179,7 +179,7 @@ struct ProbeResult {
     TimestampStrategy strategy = TimestampStrategy::LINEAR_FALLBACK;
     std::string container;
     std::string codec;
-    int codec_id = 0;        // AVCodecID cast to int
+    int codec_id = 0;  // AVCodecID cast to int
     int width = 0;
     int height = 0;
     int64_t file_size = 0;

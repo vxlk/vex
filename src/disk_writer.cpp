@@ -57,14 +57,19 @@ DiskResult DiskWriter::finalize(const std::vector<std::array<int64_t, 3>>& metad
     // Step 2: Write the offset table
     int64_t offset_table_pos = current_pos_;
     size_t offset_bytes = offsets_.size() * sizeof(int64_t);
-    fwrite(offsets_.data(), sizeof(int64_t), offsets_.size(), file_);
+    if (fwrite(offsets_.data(), sizeof(int64_t), offsets_.size(), file_) != offsets_.size()) {
+        return result;
+    }
     current_pos_ += static_cast<int64_t>(offset_bytes);
 
     // Step 3: Write metadata (each entry is 3 x int64_t)
     int64_t metadata_pos = current_pos_;
     if (!metadata.empty()) {
         size_t meta_bytes = metadata.size() * sizeof(std::array<int64_t, 3>);
-        fwrite(metadata.data(), sizeof(std::array<int64_t, 3>), metadata.size(), file_);
+        if (fwrite(metadata.data(), sizeof(std::array<int64_t, 3>), metadata.size(), file_) !=
+            metadata.size()) {
+            return result;
+        }
         current_pos_ += static_cast<int64_t>(meta_bytes);
     }
 
@@ -86,7 +91,9 @@ DiskResult DiskWriter::finalize(const std::vector<std::array<int64_t, 3>>& metad
     std::memset(header.padding, 0, sizeof(header.padding));
 
     // Step 5: Write header
-    fwrite(&header, sizeof(CacheHeader), 1, file_);
+    if (fwrite(&header, sizeof(CacheHeader), 1, file_) != 1) {
+        return result;
+    }
     current_pos_ += static_cast<int64_t>(sizeof(CacheHeader));
 
     // Step 6: Close file

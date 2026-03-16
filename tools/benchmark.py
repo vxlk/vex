@@ -217,7 +217,7 @@ def run_batch_benchmark(
         ff_wall = time.perf_counter() - ff_t0
         if ff_wall < best_ff:
             best_ff = ff_wall
-            best_ff_per_file = ff_per_file
+            best_ff_per_file = ff_per_file  # noqa: F841
 
         if runs > 1:
             print(f"  run {run_i + 1}/{runs}:  vex={vt:.3f}s  ffmpeg={ff_wall:.3f}s")
@@ -347,9 +347,7 @@ def print_batch_summary(aggregate: dict, label: str):
         f"    amortized: {aggregate['vex_amortized'] * 1000:>8.1f} ms  "
         f"(= {aggregate['vex_time'] * 1000:.0f} / {aggregate['n_files']})"
     )
-    print(
-        f"  FFmpeg image2pipe (threaded, {aggregate['n_files']} subprocesses)"
-    )
+    print(f"  FFmpeg image2pipe (threaded, {aggregate['n_files']} subprocesses)")
     print(f"    total:     {aggregate['ffmpeg_time'] * 1000:>8.1f} ms")
     print(
         f"    amortized: {aggregate['ffmpeg_amortized'] * 1000:>8.1f} ms  "

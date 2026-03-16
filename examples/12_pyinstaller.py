@@ -43,15 +43,12 @@ if getattr(sys, "frozen", False):
 
 # ── Builder entry point (normal Python) ─────────────────────────────────────
 
-import shutil
 import subprocess
 import tempfile
 
 
 def main():
-    project_root = os.path.normpath(
-        os.path.join(os.path.dirname(__file__), "..")
-    )
+    project_root = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
     hook_dir = os.path.join(project_root, "pyinstaller")
     this_script = os.path.abspath(__file__)
 
@@ -59,9 +56,7 @@ def main():
     if len(sys.argv) > 1:
         video = os.path.abspath(sys.argv[1])
     else:
-        video = os.path.join(
-            project_root, "fixtures", "formats", "h264_mp4.mp4"
-        )
+        video = os.path.join(project_root, "fixtures", "formats", "h264_mp4.mp4")
     if not os.path.isfile(video):
         print(f"Video not found: {video}", file=sys.stderr)
         sys.exit(1)
@@ -72,15 +67,24 @@ def main():
     with tempfile.TemporaryDirectory() as tmpdir:
         print("Building frozen app with PyInstaller ...")
         build_cmd = [
-            sys.executable, "-m", "PyInstaller",
+            sys.executable,
+            "-m",
+            "PyInstaller",
             "--noconfirm",
-            "--log-level", "WARN",
-            "--distpath", os.path.join(tmpdir, "dist"),
-            "--workpath", os.path.join(tmpdir, "build"),
-            "--specpath", tmpdir,
-            "--additional-hooks-dir", hook_dir,
-            "--paths", python_dir,
-            "--name", "vex_frozen",
+            "--log-level",
+            "WARN",
+            "--distpath",
+            os.path.join(tmpdir, "dist"),
+            "--workpath",
+            os.path.join(tmpdir, "build"),
+            "--specpath",
+            tmpdir,
+            "--additional-hooks-dir",
+            hook_dir,
+            "--paths",
+            python_dir,
+            "--name",
+            "vex_frozen",
             this_script,
         ]
         subprocess.check_call(build_cmd)
@@ -94,7 +98,9 @@ def main():
         print(f"Running frozen app: {exe}")
         proc = subprocess.run(
             [exe, video],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
 
         print(f"stdout: {proc.stdout.strip()}")

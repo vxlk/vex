@@ -70,8 +70,8 @@ private:
     struct Batch {
         std::atomic<int> completed{0};
         int total{0};
-        std::mutex mutex;              // protects the cv wait
-        std::condition_variable cv;    // signalled when completed >= total
+        std::mutex mutex;            // protects the cv wait
+        std::condition_variable cv;  // signalled when completed >= total
     };
 
     /// A single unit of work in the queue.
@@ -94,11 +94,11 @@ private:
     /// Grow the pool to at least n workers.  Caller must hold mutex_.
     void grow_to(int n);
 
-    std::mutex mutex_;                   // protects queue_, workers_, shutdown_
-    std::condition_variable work_cv_;    // workers wait on this for new items
-    std::deque<WorkItem> queue_;         // pending work items (FIFO)
-    std::vector<std::thread> workers_;   // persistent worker threads
-    std::atomic<int> active_{0};         // items currently being executed
+    std::mutex mutex_;                  // protects queue_, workers_, shutdown_
+    std::condition_variable work_cv_;   // workers wait on this for new items
+    std::deque<WorkItem> queue_;        // pending work items (FIFO)
+    std::vector<std::thread> workers_;  // persistent worker threads
+    std::atomic<int> active_{0};        // items currently being executed
     bool shutdown_ = false;
 };
 

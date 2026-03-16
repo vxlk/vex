@@ -216,14 +216,15 @@ class TestPyInstallerHook:
             pytest.skip("test fixtures not generated")
 
         import subprocess
-        import tempfile
 
         example = PROJECT_ROOT / "examples" / "12_pyinstaller.py"
         assert example.is_file(), "12_pyinstaller.py example not found"
 
         result = subprocess.run(
             [sys.executable, str(example), str(fixture)],
-            capture_output=True, text=True, timeout=120,
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
         assert result.returncode == 0, (
             f"PyInstaller example failed (rc={result.returncode}):\n"

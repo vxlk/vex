@@ -15,9 +15,30 @@ import vex  # noqa: E402
 FIXTURES = PROJECT_ROOT / "fixtures"
 
 VIDEO_EXTENSIONS = (
-    ".mp4", ".mkv", ".avi", ".ts", ".flv", ".mov", ".webm", ".ogv",
-    ".mpg", ".vob", ".wmv", ".asf", ".3gp", ".3g2", ".nut", ".ivf",
-    ".f4v", ".m4v", ".swf", ".rm", ".wtv", ".mxf", ".gxf", ".dv",
+    ".mp4",
+    ".mkv",
+    ".avi",
+    ".ts",
+    ".flv",
+    ".mov",
+    ".webm",
+    ".ogv",
+    ".mpg",
+    ".vob",
+    ".wmv",
+    ".asf",
+    ".3gp",
+    ".3g2",
+    ".nut",
+    ".ivf",
+    ".f4v",
+    ".m4v",
+    ".swf",
+    ".rm",
+    ".wtv",
+    ".mxf",
+    ".gxf",
+    ".dv",
 )
 
 # Codecs known to support multi-threaded decoding (slice or frame threading).
@@ -145,7 +166,7 @@ def test_probe_returns_all_fields():
     assert p.decode_threads > 1, f"h264 should use > 1 thread, got {p.decode_threads}"
     assert p.frame_count > 0, f"frame_count should be > 0, got {p.frame_count}"
     assert p.fps > 0, f"fps should be > 0, got {p.fps}"
-    assert len(p.codec) > 0, f"codec name should be non-empty"
+    assert len(p.codec) > 0, "codec name should be non-empty"
     print(
         f"  PASS: h264_mp4.mp4 -> codec_id={p.codec_id}, {p.width}x{p.height}, "
         f"file_size={p.file_size}, threads={p.decode_threads}"

@@ -23,6 +23,8 @@ static int64_t to_ms(int64_t timestamp, AVRational time_base) {
 
 static std::vector<KeyframeInfo> scan_container_index(AVFormatContext* fmt_ctx, int stream_index) {
     std::vector<KeyframeInfo> keyframes;
+    if (stream_index < 0 || stream_index >= static_cast<int>(fmt_ctx->nb_streams))
+        return keyframes;
     AVStream* stream = fmt_ctx->streams[stream_index];
 
     int nb_entries = avformat_index_get_entries_count(stream);

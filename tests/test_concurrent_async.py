@@ -154,9 +154,7 @@ class TestConcurrentAsyncDecode:
         # Launch all handles up-front — no waiting between launches.
         handles = []
         for p in paths:
-            handles.append(
-                batch_decode_async([p], levels=[level], keyframes_only=True)
-            )
+            handles.append(batch_decode_async([p], levels=[level], keyframes_only=True))
 
         # Now collect results.  Timeout ensures we don't hang forever.
         for i, h in enumerate(handles):
@@ -175,8 +173,7 @@ class TestConcurrentAsyncDecode:
         level = LevelConfig(width=192, height=192, quality=75)
 
         handles = [
-            batch_decode_async([p], levels=[level], keyframes_only=True)
-            for p in paths
+            batch_decode_async([p], levels=[level], keyframes_only=True) for p in paths
         ]
 
         frame_counts = []
@@ -210,8 +207,7 @@ class TestConcurrentAsyncDecode:
         level = LevelConfig(width=160, height=120, quality=60)
 
         handles = [
-            batch_decode_async([p], levels=[level], keyframes_only=True)
-            for p in paths
+            batch_decode_async([p], levels=[level], keyframes_only=True) for p in paths
         ]
 
         # Poll all handles until all are done, collecting streaming data.
@@ -273,7 +269,9 @@ class TestConcurrentAsyncDecode:
             except Exception as exc:
                 errors[idx] = exc
 
-        threads = [threading.Thread(target=launch, args=(i,)) for i in range(len(paths))]
+        threads = [
+            threading.Thread(target=launch, args=(i,)) for i in range(len(paths))
+        ]
         for t in threads:
             t.start()
         for t in threads:

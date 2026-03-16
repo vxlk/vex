@@ -480,10 +480,9 @@ PYBIND11_MODULE(_vex_core, m) {
         py::dict d;
         // Heap + capsule: Python frees when the numpy array is collected.
         auto* heap = new std::vector<double>(std::move(result.times_sec));
-        auto cap =
-            py::capsule(heap, [](void* p) { delete static_cast<std::vector<double>*>(p); });
-        d["times"] = py::array_t<double>({static_cast<py::ssize_t>(heap->size())},
-                                         {sizeof(double)}, heap->data(), cap);
+        auto cap = py::capsule(heap, [](void* p) { delete static_cast<std::vector<double>*>(p); });
+        d["times"] = py::array_t<double>({static_cast<py::ssize_t>(heap->size())}, {sizeof(double)},
+                                         heap->data(), cap);
         d["frame_count"] = result.frame_count;
         d["duration_sec"] = result.duration_sec;
         d["fps"] = result.fps;
@@ -502,8 +501,7 @@ PYBIND11_MODULE(_vex_core, m) {
           "Probe a video file: timestamps, codec info, resolution, decode thread count.");
 
     // Shutdown persistent thread pool on module unload.
-    auto cleanup = py::capsule(&vex::ThreadPool::instance(), [](void*) {
-        vex::ThreadPool::instance().shutdown();
-    });
+    auto cleanup = py::capsule(&vex::ThreadPool::instance(),
+                               [](void*) { vex::ThreadPool::instance().shutdown(); });
     m.add_object("_thread_pool_cleanup", cleanup);
 }

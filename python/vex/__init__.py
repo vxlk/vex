@@ -9,6 +9,8 @@ import sys
 from dataclasses import dataclass
 from typing import List, Optional, Union
 
+import threading
+
 import numpy as np
 
 # ---------------------------------------------------------------------------
@@ -540,7 +542,11 @@ class CachedLevel:
         self._offsets = struct.unpack(f"<{frame_count + 1}q", offset_bytes)
 
         # Memory-map the file for fast random access to JPEG data
-        self._mm = mmap.mmap(self._file.fileno(), 0, access=mmap.ACCESS_READ)
+        try:
+            self._mm = mmap.mmap(self._file.fileno(), 0, access=mmap.ACCESS_READ)
+        except Exception:
+            self.close()
+            raise
 
     def __len__(self) -> int:
         return self._frame_count
@@ -605,6 +611,7 @@ class CachedLevel:
 
 
 _dll_dirs_added = False
+_dll_dirs_lock = threading.Lock()
 
 
 def _load_native():
@@ -620,16 +627,18 @@ def _load_native():
     # repeated calls accumulate entries and can exhaust the DLL search path
     # limit on Windows 10 (WinError 206) during long test runs.
     if not _dll_dirs_added and hasattr(os, "add_dll_directory"):
-        _pkg_dir = os.path.dirname(os.path.abspath(__file__))
-        os.add_dll_directory(_pkg_dir)
+        with _dll_dirs_lock:
+            if not _dll_dirs_added:
+                _pkg_dir = os.path.dirname(os.path.abspath(__file__))
+                os.add_dll_directory(_pkg_dir)
 
-        # When running inside a PyInstaller frozen bundle, DLLs are
-        # extracted to sys._MEIPASS.  Add it so Windows can find them.
-        _meipass = getattr(sys, "_MEIPASS", None)
-        if _meipass:
-            os.add_dll_directory(_meipass)
+                # When running inside a PyInstaller frozen bundle, DLLs are
+                # extracted to sys._MEIPASS.  Add it so Windows can find them.
+                _meipass = getattr(sys, "_MEIPASS", None)
+                if _meipass:
+                    os.add_dll_directory(_meipass)
 
-        _dll_dirs_added = True
+                _dll_dirs_added = True
 
     try:
         from . import _vex_core
@@ -729,7 +738,11 @@ def _wrap_level_result(raw) -> Union[JpegStreamResult, SpriteAtlasResult, DiskRe
             metadata=disk.get("metadata", np.empty((0, 3), dtype=np.int64)),
         )
     else:
-        # Fallback: empty result based on format
+        # Fallback: empty result based on format — log unexpected shape
+        print(
+            f"[vex] warning: unexpected level result from native module: "
+            f"format={fmt!r}, keys={sorted(raw.keys())}"
+        )
         if fmt == "sprite_atlas":
             return SpriteAtlasResult(
                 blob=np.array([], dtype=np.uint8),

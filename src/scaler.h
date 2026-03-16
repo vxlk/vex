@@ -13,8 +13,7 @@ class FrameScaler {
 public:
     FrameScaler(int src_w, int src_h, int src_fmt, int dst_w, int dst_h);
     // Borrowed-ctx constructor: uses an externally-owned SwsContext (not freed on destruction).
-    FrameScaler(int src_w, int src_h, int src_fmt, int dst_w, int dst_h,
-                SwsContext* borrowed_ctx);
+    FrameScaler(int src_w, int src_h, int src_fmt, int dst_w, int dst_h, SwsContext* borrowed_ctx);
     ~FrameScaler();
 
     FrameScaler(const FrameScaler&) = delete;

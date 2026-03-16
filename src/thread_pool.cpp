@@ -48,8 +48,8 @@ void ThreadPool::worker_loop() {
         //
         // The acq_rel ordering ensures the run() caller sees all
         // side-effects from every item's execution before it resumes.
-        if (item.batch->completed.fetch_add(1, std::memory_order_acq_rel) + 1
-            >= item.batch->total) {
+        if (item.batch->completed.fetch_add(1, std::memory_order_acq_rel) + 1 >=
+            item.batch->total) {
             std::lock_guard<std::mutex> lock(item.batch->mutex);
             item.batch->cv.notify_one();
         }
@@ -80,10 +80,7 @@ void ThreadPool::run(std::function<void(int)> func, int count) {
         // value (shared via std::function's internal refcount) and a
         // unique integer id, so items are fully independent.
         for (int i = 0; i < count; ++i) {
-            queue_.push_back(WorkItem{
-                [f = func, i]() { f(i); },
-                batch
-            });
+            queue_.push_back(WorkItem{[f = func, i]() { f(i); }, batch});
         }
 
         // Grow the pool so this batch can run concurrently with any
@@ -91,8 +88,7 @@ void ThreadPool::run(std::function<void(int)> func, int count) {
         // batch_decode_async() call would have to wait for the first
         // batch's long-running workers to finish before its items
         // could be picked up — defeating the purpose of async decode.
-        int target = active_.load(std::memory_order_relaxed)
-                   + static_cast<int>(queue_.size());
+        int target = active_.load(std::memory_order_relaxed) + static_cast<int>(queue_.size());
         grow_to(target);
     }
 

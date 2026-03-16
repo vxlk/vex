@@ -132,8 +132,8 @@ static void update_extradata(AVCodecContext* ctx, const AVCodecParameters* par) 
     av_freep(&ctx->extradata);
     ctx->extradata_size = 0;
     if (par->extradata_size > 0) {
-        ctx->extradata = static_cast<uint8_t*>(
-            av_mallocz(par->extradata_size + AV_INPUT_BUFFER_PADDING_SIZE));
+        ctx->extradata =
+            static_cast<uint8_t*>(av_mallocz(par->extradata_size + AV_INPUT_BUFFER_PADDING_SIZE));
         if (ctx->extradata) {
             memcpy(ctx->extradata, par->extradata, par->extradata_size);
             ctx->extradata_size = par->extradata_size;
@@ -199,8 +199,8 @@ FileDecoder::FileDecoder(const std::string& path, HWAccelContext* hw, int decode
                 ProcessCache::ProbeHint hint;
                 if (fmt_name.find("mp4") != std::string::npos ||
                     fmt_name.find("matroska") != std::string::npos) {
-                    hint.probesize = 1024 * 1024;       // 1MB (vs 5MB default)
-                    hint.analyze_duration = 2000000;     // 2s  (vs 5s default)
+                    hint.probesize = 1024 * 1024;     // 1MB (vs 5MB default)
+                    hint.analyze_duration = 2000000;  // 2s  (vs 5s default)
                 }
                 cache.probe_hints[fmt_name] = hint;
             }
@@ -315,6 +315,16 @@ FileDecoder::FileDecoder(const std::string& path, HWAccelContext* hw, int decode
 
     // Step 10: Allocate reusable packet for decode_next
     pkt_ = av_packet_alloc();
+    if (!pkt_) {
+        if (hw_frame_) {
+            av_frame_free(&hw_frame_);
+        }
+        hw_accel_ = nullptr;
+        avcodec_free_context(&codec_ctx_);
+        avformat_close_input(&fmt_ctx_);
+        valid_ = false;
+        return;
+    }
 
     // Step 11: Store codec name, mark valid
     codec_name_ = codec->name;  // Use original codec name (not cuvid name)
@@ -357,7 +367,7 @@ FileDecoder::~FileDecoder() {
 //   - Demuxer fails to open the new file
 
 bool FileDecoder::reopen_file(const std::string& new_path, HWAccelContext* /*hw*/,
-                               int /*decode_threads*/) {
+                              int /*decode_threads*/) {
     if (!valid_ || !codec_ctx_)
         return false;
 
@@ -405,11 +415,8 @@ bool FileDecoder::reopen_file(const std::string& new_path, HWAccelContext* /*hw*
     //   - VideoToolbox stalled on SPS change (FFmpeg commit 9519983c)
     //   - QSV lost frames during reinit (Intel issue #48)
     //   - CUDA stale memory on 10-bit HEVC (mpv #4115)
-    if (new_par->codec_id != codec_id_ ||
-        new_par->width != width_ ||
-        new_par->height != height_ ||
-        (new_par->format != AV_PIX_FMT_NONE &&
-         new_par->format != codec_ctx_->pix_fmt)) {
+    if (new_par->codec_id != codec_id_ || new_par->width != width_ || new_par->height != height_ ||
+        (new_par->format != AV_PIX_FMT_NONE && new_par->format != codec_ctx_->pix_fmt)) {
         avformat_close_input(&new_fmt);
         return false;
     }

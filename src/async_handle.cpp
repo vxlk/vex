@@ -144,7 +144,10 @@ std::vector<double> DecodeHandle::peek_frame_times(int file_index) const {
         return {};
 
     auto& vec = (*frame_times_)[static_cast<size_t>(file_index)];
-    return std::vector<double>(vec.begin(), vec.begin() + count);
+    int safe_count = std::min(count, static_cast<int>(vec.size()));
+    if (safe_count <= 0)
+        return {};
+    return std::vector<double>(vec.begin(), vec.begin() + safe_count);
 }
 
 }  // namespace vex

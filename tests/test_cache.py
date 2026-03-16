@@ -105,8 +105,8 @@ class TestDiskCache:
 
         # Cache read must be at least 2x faster than re-decoding
         assert cache_time < decode_time, (
-            f"cache read ({cache_time*1000:.1f}ms) was not faster than "
-            f"decode ({decode_time*1000:.1f}ms)"
+            f"cache read ({cache_time * 1000:.1f}ms) was not faster than "
+            f"decode ({decode_time * 1000:.1f}ms)"
         )
 
     def test_cached_frames_match_in_memory(self, tmp_path):
@@ -181,8 +181,8 @@ class TestDiskCache:
             # Both should be within 5x of each other (generous for O(1))
             ratio = max(first_time, last_time) / max(min(first_time, last_time), 1e-9)
             assert ratio < 5.0, (
-                f"random access not constant time: first={first_time*1000:.2f}ms, "
-                f"last={last_time*1000:.2f}ms, ratio={ratio:.1f}x"
+                f"random access not constant time: first={first_time * 1000:.2f}ms, "
+                f"last={last_time * 1000:.2f}ms, ratio={ratio:.1f}x"
             )
 
 
@@ -236,8 +236,8 @@ class TestProcessCache:
         # stable (not rebuilding).  Allow up to 2x variance for system noise.
         ratio = max(warm_time, warm_time2) / max(min(warm_time, warm_time2), 1e-9)
         assert ratio < 2.0, (
-            f"warm runs not stable: {warm_time*1000:.1f}ms vs "
-            f"{warm_time2*1000:.1f}ms (ratio={ratio:.1f}x)"
+            f"warm runs not stable: {warm_time * 1000:.1f}ms vs "
+            f"{warm_time2 * 1000:.1f}ms (ratio={ratio:.1f}x)"
         )
 
     def test_multi_file_same_format_amortizes_probe(self):
@@ -264,13 +264,13 @@ class TestProcessCache:
         # Single file baseline
         t0 = time.perf_counter()
         for _ in range(5):
-            r1 = batch_decode(mp4s[:1], levels, keyframes_only=True)
+            batch_decode(mp4s[:1], levels, keyframes_only=True)
         single_time = (time.perf_counter() - t0) / 5
 
         # Multi file batch
         t0 = time.perf_counter()
         for _ in range(5):
-            rn = batch_decode(mp4s, levels, keyframes_only=True)
+            batch_decode(mp4s, levels, keyframes_only=True)
         batch_time = (time.perf_counter() - t0) / 5
 
         n = len(mp4s)
@@ -279,8 +279,8 @@ class TestProcessCache:
         # amortized.  We require at least 10% savings (generous threshold).
         expected_linear = single_time * n
         assert batch_time < expected_linear, (
-            f"batch of {n} ({batch_time*1000:.1f}ms) was not faster than "
-            f"{n} x single ({expected_linear*1000:.1f}ms)"
+            f"batch of {n} ({batch_time * 1000:.1f}ms) was not faster than "
+            f"{n} x single ({expected_linear * 1000:.1f}ms)"
         )
 
 
@@ -335,8 +335,8 @@ class TestThreadCache:
         # Batch should be faster (thread caches are rebuilt per batch_decode
         # call, so individual calls pay setup cost N times)
         assert batch_time < individual_time, (
-            f"batch ({batch_time*1000:.1f}ms) was not faster than "
-            f"individual ({individual_time*1000:.1f}ms)"
+            f"batch ({batch_time * 1000:.1f}ms) was not faster than "
+            f"individual ({individual_time * 1000:.1f}ms)"
         )
 
     def test_consistent_output_across_batching_strategies(self):
@@ -498,8 +498,8 @@ class TestDiskCacheFormats:
         cache_time = (time.perf_counter() - t0) / 3
 
         assert cache_time < decode_time, (
-            f"cache read of {n_frames} frames ({cache_time*1000:.1f}ms) "
-            f"not faster than decode ({decode_time*1000:.1f}ms)"
+            f"cache read of {n_frames} frames ({cache_time * 1000:.1f}ms) "
+            f"not faster than decode ({decode_time * 1000:.1f}ms)"
         )
 
 
@@ -535,6 +535,6 @@ class TestCacheStability:
         # Allow 50% variance for system noise, but second half must not be
         # dramatically slower (would indicate cache leak/bloat)
         assert second_half < first_half * 1.5, (
-            f"decode slowing down: first half avg={first_half*1000:.1f}ms, "
-            f"second half avg={second_half*1000:.1f}ms"
+            f"decode slowing down: first half avg={first_half * 1000:.1f}ms, "
+            f"second half avg={second_half * 1000:.1f}ms"
         )

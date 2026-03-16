@@ -68,6 +68,8 @@ void AtlasBuilder::add_thumbnail(int time_step, int file_index, const uint8_t* y
     int y_pos = row * thumb_h_;
 
     // Access the time step (caller must have called ensure_time_step first)
+    if (time_step < 0 || static_cast<size_t>(time_step) >= time_steps_.size())
+        return;
     TimeStep& ts = time_steps_[static_cast<size_t>(time_step)];
 
     // Blit Y plane
